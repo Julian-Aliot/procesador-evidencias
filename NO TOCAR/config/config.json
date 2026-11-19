@@ -1,0 +1,13 @@
+{
+  "programa": "analizador-evidencias",
+  "version": "1.0.0",
+  "modo": "envios_independientes",
+  "repositorio_url": "https://github.com/Julian-Aliot/procesador-evidencias",
+  "rama": "main",
+  "limites": {
+    "max_archivos": 10000,
+    "max_bytes_archivo": 536870912,
+    "max_bytes_envio": 2147483648,
+    "max_ratio_zip": 1000
+  }
+}

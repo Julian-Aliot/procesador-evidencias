@@ -1,0 +1,14 @@
+entrada/*
+!entrada/.gitkeep
+resultados/*
+!resultados/.gitkeep
+NO TOCAR/trabajo/
+NO TOCAR/control/
+NO TOCAR/pruebas-temporales/
+__pycache__/
+*.pyc
+.venv/
+.env
+.DS_Store
+Thumbs.db
+~$*
