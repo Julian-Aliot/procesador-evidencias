@@ -45,3 +45,11 @@ En Resumen, NOMBRE DETECTADO reúne los nombres canónicos contrastados de todas
 En capturas, transcribe códigos junto con sus prefijos o sufijos visibles en codigos_proyecto, con región y cita. Conserva cada nombre literal. Si es dudosa la correspondencia de identidad, añade identidad_dudosa: true a esa persona.
 
 Completa descripcion_tarea por actividad en DETALLE y resume el conjunto en resumen_documento.descripcion_tarea para Resumen. En ambos casos redacta acción y objeto con respaldo documental.
+
+Ejemplo ficticio de una cuenta con un perfil visible en la misma captura. Transcribe los valores reales y omite los campos opcionales que carezcan de respaldo.
+
+```json
+{"valor":"Luz.Nube","rol":"autor","ubicacion":"Historial, autor","cita":"Luz.Nube","ambito_cuenta":"Git del estudio Nube","perfil_vinculado":{"valor":"Luz Vidal","ubicacion":"Ficha de la cuenta","cita":"Luz.Nube · Luz Vidal"}}
+```
+
+Si únicamente se ve la cuenta y hay prueba del sufijo de equipo, usa por ejemplo `"sufijo_equipo":{"valor":"Nube","ubicacion":"Cabecera e historial","cita":"Equipo Nube · Luz.Nube · Mario.Nube"}`. Usa el mismo ámbito solo si puedes identificar el mismo servicio y espacio de cuentas. Un nombre de pila suelto no identifica una cuenta reutilizable.

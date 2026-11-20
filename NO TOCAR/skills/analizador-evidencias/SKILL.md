@@ -3,7 +3,7 @@ name: analizador-evidencias
 description: Analiza imágenes, PDF, hojas de cálculo y documentos de tareas o participación, detecta personas y proyectos y contrasta listados aportados por envío independiente. Genera un ZIP con Excel de dos hojas y evidencias en Drive privado.
 ---
 
-# Analizador de evidencias 1.3
+# Analizador de evidencias 1.4
 
 ## Preparación
 
@@ -34,3 +34,5 @@ Aplicar el contrato de resumen_documento de extraccion.md y las dos hojas de pla
 En Resumen, NOMBRE DETECTADO reúne los nombres canónicos contrastados de todas las personas de la evidencia, una vez por nombre. Para DESCRIPCIÓN TAREA, redacta en resumen_documento.descripcion_tarea una frase breve de acción y objeto con valor, ubicación y cita. Por ejemplo, «Desarrollo del modelo de la cabra» o «Compositing del plano 024». Si hay varias tareas, sintetiza el trabajo acreditado. Si no se puede identificar, deja el valor vacío y anota el motivo en incidencias_documento.
 
 Al preparar el envío, pasa el Excel o CSV de personal con --personal y el de proyectos con --proyectos. Un libro con ambas hojas puede usarse para ambos parámetros. Comprueba referencias_importadas. Si los encabezados o el formato requieren lectura manual, conserva los listados y completa catalogo.json con los valores y ubicaciones verificados antes de ejecutar completar. Los listados son opcionales e independientes.
+
+Antes de cerrar, revisa las cuentas abreviadas de todas las evidencias con las reglas de listados.md. Traslada los perfiles visibles a personas[].perfil_vinculado y los sufijos de equipo justificados a personas[].sufijo_equipo. Ejecuta `envios.py revisar --root <raíz> --envio <envío>` para ver cuántas entradas de personal se cargaron, cuántas filas tienen nombre y cuáles quedan sin cruce. Si el usuario aportó listado y el recuento es nulo, cero o inferior al esperado, contrasta las hojas y cabeceras con el catálogo y corrige la importación antes de completar. Si hay nombres legibles y ningún cruce, vuelve a comprobar en las evidencias los perfiles, usuarios y sufijos documentados y repite revisar. Si persiste, entrega el ZIP e indica el resultado del contraste. Conserva en blanco los casos ambiguos.

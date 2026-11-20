@@ -8,6 +8,6 @@ Usa el manifiesto y las identidades de `envios.py preparar`. Cada documento cons
 
 Revisa todas las páginas y hojas relevantes, incluidos objetos incrustados, hojas ocultas, contexto de celdas combinadas e imágenes. Un documento ilegible conserva una fila pendiente. Cada detección debe conservar valor, ubicación y cita breve. Registra discrepancias y ambigüedades. La lectura de texto de un archivo no equivale a revisión completa.
 
-Las columnas detectadas se calculan con los listados aportados en este envío, preservando códigos y nombres canónicos. Los alias proceden del usuario. Conserva los archivos originales de los listados en el área técnica del envío y documenta sus ubicaciones.
+Las columnas detectadas se calculan con los listados aportados en este envío, preservando códigos y nombres canónicos. Los alias del catálogo proceden del usuario. Los vínculos observados entre cuenta y perfil se citan en la extracción y se contrastan con ese catálogo. Conserva los archivos originales de los listados en el área técnica del envío y documenta sus ubicaciones.
 
 Los bloqueos se retiran solo tras comprobar que ningún escritor sigue activo. Ante errores conserva el envío y reintenta completarlo. Una incidencia de Drive se resuelve reintentando la transferencia del mismo resultado.

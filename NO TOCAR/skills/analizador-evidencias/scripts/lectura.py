@@ -122,7 +122,7 @@ def read_document(path, output):
 
 
 CATALOG_HEADERS = {
-    'nombre': {'nombre', 'nombre completo', 'nombre bonificado', 'personal bonificado', 'nombre y apellidos', 'trabajador'},
+    'nombre': {'nombre', 'nombre completo', 'nombre bonificado', 'personal bonificado', 'nombre y apellidos', 'apellidos y nombre', 'apellidos, nombre', 'trabajador'},
     'codigo': {'codigo', 'codigo proyecto', 'codigo de proyecto', 'codigo bonificado', 'codigo interno'},
     'aliases': {'aliases', 'alias'},
 }
@@ -179,10 +179,13 @@ def import_catalog(path, kind):
                 surnames = [row[k] for k in ('primer apellido', 'segundo apellido') if row.get(k)]
             if surnames:
                 raw = ' '.join([raw.strip()] + [str(v).strip() for v in surnames])
-        aliases = row.get('aliases') or ''
-        if not isinstance(aliases, str) or aliases.startswith('='):
+        alias_fields = ['aliases']
+        if field_name == 'nombre':
+            alias_fields.extend(['usuario', 'nombre de usuario', 'login', 'username'])
+        aliases = [row[k] for k in alias_fields if row.get(k)]
+        if any(not isinstance(v, str) or v.startswith('=') for v in aliases):
             raise ValueError('Los alias deben ser texto literal separado por |.')
-        result.append({field_name: raw.strip(), 'aliases': [v.strip() for v in aliases.split('|') if v.strip()], 'origen': origin})
+        result.append({field_name: raw.strip(), 'aliases': [v.strip() for cell in aliases for v in cell.split('|') if v.strip()], 'origen': origin})
     if not result:
         raise ValueError('El listado no contiene entradas. Revisa encabezados y selección.')
     return result

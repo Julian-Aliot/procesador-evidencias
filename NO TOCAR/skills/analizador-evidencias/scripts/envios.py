@@ -20,7 +20,7 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-VERSION = '1.3.0'
+VERSION = '1.4.0'
 HEADERS = ['NOMBRE DETECTADO', 'NOMBRE BONIFICADO', 'CÓDIGO DETECTADO', 'CÓDIGO BONIFICADO',
            'FECHA', 'TÍTULO TAREA', 'RESUMEN EVIDENCIA', 'UBICACIÓN', 'ARCHIVO EVIDENCIA',
            'REVISIÓN', 'DESCRIPCIÓN TAREA']
@@ -300,6 +300,116 @@ def short_name(observed, full, identified):
                for i, (word, ref) in enumerate(zip(words, target)))
 
 
+# Las variantes generan candidatos. Solo se publica una identidad única del listado.
+GIVEN_NAMES = {
+    'xavi': {'xavier', 'javier'}, 'javi': {'javier', 'xavier'},
+    'toni': {'antoni', 'antonio'}, 'kike': {'enrique'}, 'quique': {'enrique'},
+    'guille': {'guillermo', 'guillem'}, 'fran': {'francisco', 'francesc', 'francisca'},
+}
+
+
+def given_first(name):
+    if name.count(',') == 1:
+        surnames, first = name.split(',')
+        return first.strip() + ' ' + surnames.strip()
+    return name
+
+
+def personal_candidates(value, index, allow_prefix=False):
+    literal = normalized(value)
+    if literal in index:
+        return index[literal]
+    value = given_first(value)
+    words = name_parts(value)
+    if not words or not all(c.isalpha() or c in " .-’'" for c in value):
+        return set()
+    variants = GIVEN_NAMES.get(words[0], set()) | {words[0]}
+    candidates = set()
+    # Las aproximaciones se aplican a nombres oficiales, nunca a fragmentos de alias.
+    for name in {n for owners in index.values() for n in owners}:
+        ordered = given_first(name)
+        parts = name_parts(ordered)
+        if len(words) == 1:
+            hit = parts and len(words[0]) >= 3 and (
+                parts[0] in variants or (allow_prefix and len(words[0]) >= 4 and parts[0].startswith(words[0])))
+        else:
+            hit = short_name(value, ordered, identified=False)
+        if hit:
+            candidates.add(name)
+    return candidates
+
+
+def account_key(person):
+    scope = person.get('ambito_cuenta')
+    if scope:
+        return normalized(text(scope, 'Ámbito de la cuenta')), normalized(text(person.get('valor'), 'Usuario'))
+    return None
+
+
+def collect_profiles(documents):
+    profiles = {}
+    for doc in documents:
+        for activity in doc.get('actividades') or []:
+            for person in activity.get('personas') or []:
+                profile = person.get('perfil_vinculado')
+                if not profile or person.get('identidad_dudosa') is True:
+                    continue
+                visible = validate_field(profile, 'perfil vinculado')
+                if not visible or len(name_parts(visible)) < 2:
+                    raise ValueError('El perfil vinculado requiere nombre y apellido visibles.')
+                # Sin ámbito explícito, la prueba solo vale en esta detección.
+                key = account_key(person) or id(person)
+                profiles.setdefault(key, []).append((visible, doc['id'], profile))
+    return profiles
+
+
+def resolve_person(person, index, profiles, reasons, trace):
+    if index is None:
+        reasons.append('Listado de personal bonificado no aportado; contraste pendiente.')
+        return ''
+    if not person:
+        return ''
+    literal = person['valor']
+    if person.get('identidad_dudosa') is True:
+        reasons.append('Identidad dudosa según la evidencia: ' + literal)
+        return ''
+    declared = index.get(normalized(literal))
+    links = profiles.get(account_key(person) or id(person), [])
+    if links:
+        resolved = []
+        for visible, doc_id, profile in links:
+            resolved.append(personal_candidates(visible, index))
+            trace.append(f"Perfil de {literal}: {visible} | {doc_id}, {profile['ubicacion']}: {profile['cita']}")
+        if any(len(hit) != 1 for hit in resolved) or len(set.union(*resolved)) != 1:
+            reasons.append('Perfil sin correspondencia única en personal bonificado: ' + literal)
+            return ''
+        candidates = resolved[0]
+        if declared is not None:
+            candidates = candidates & declared
+    elif declared:
+        candidates = declared
+    else:
+        observed = literal
+        suffix = person.get('sufijo_equipo')
+        if suffix:
+            tag = validate_field(suffix, 'sufijo de equipo')
+            handle = literal.removeprefix('@')
+            if tag and tag.isalnum() and len(tag) >= 2 and not any(c.isspace() for c in handle) and handle.casefold().endswith(tag.casefold()):
+                observed = handle[:-len(tag)].rstrip('._-')
+                trace.append(f"Usuario {literal}, base {observed} | {suffix['ubicacion']}: {suffix['cita']}")
+        allow_prefix = person.get('rol') in {'autor', 'participante', 'responsable', 'destinatario'}
+        candidates = personal_candidates(observed, index, allow_prefix=allow_prefix)
+        if len(candidates) == 1:
+            trace.append('Forma contrastada con el listado: ' + observed)
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    if candidates:
+        reasons.append('Coincidencia ambigua en personal bonificado: ' + literal)
+    else:
+        reasons.append('Sin coincidencia confirmada en personal bonificado: ' + literal)
+    return ''
+
+
 def embedded_code(value, code):
     # Los delimitadores incluyen guiones bajos de nombres de planos y archivos.
     if code.isdecimal():
@@ -350,6 +460,7 @@ def build_rows(manifest, extraction, catalog):
     if len(indexed) != len(documents):
         raise ValueError('Identidades de extracción repetidas.')
     indexes = catalog_indexes(catalog)
+    profiles = collect_profiles(documents)
     rows, counts = [], {}
     seen_hashes = {}
     for doc in manifest['documentos']:
@@ -433,16 +544,10 @@ def build_rows(manifest, extraction, catalog):
             for person in activity['personas'] or [None]:
                 person_reasons = list(reasons)
                 literal = person['valor'] if person else None
-                canonical = ''
-                if person and person.get('identidad_dudosa') is True:
-                    person_reasons.append('Identidad dudosa según la evidencia: ' + literal)
-                else:
-                    canonical = matches([literal] if person else [], indexes['personal'],
-                                        'personal bonificado', person_reasons,
-                                        identified=bool(person and person['rol'] in {'autor', 'participante', 'responsable', 'destinatario'}))
                 trace = []
                 if person:
                     trace.append(f"{literal} ({person['rol']}) · {person['ubicacion']}: {person['cita']}")
+                canonical = resolve_person(person, indexes['personal'], profiles, person_reasons, trace)
                 for entry in catalog.get('personal') or []:
                     if canonical == entry['nombre']:
                         trace.append('Personal bonificado: ' + canonical + ' | listado: ' + entry['origen'])
@@ -615,7 +720,7 @@ def verify_originals(envio, manifest):
             raise ValueError('Un adjunto original ha cambiado o falta; conserva/restaura el original para continuar.')
 
 
-def finish(root, envio_path):
+def finish(root, envio_path, review=False):
     root, _ = config(root)
     allowed = root / 'NO TOCAR/trabajo/envios'
     envio = Path(envio_path).resolve()
@@ -635,7 +740,7 @@ def finish(root, envio_path):
         archive = envio / 'entrega.zip'
         public_zip = destination / 'entrega.zip'
         receipt = envio / 'entrega.json'
-        if receipt.exists():
+        if receipt.exists() and not review:
             report = read_json(receipt)
             if report['datos_sha256'] != inputs_hash:
                 raise ValueError('La entrega ya existe con otros datos. Conserva la entrega y crea otro envío.')
@@ -649,10 +754,19 @@ def finish(root, envio_path):
                     write_json(receipt, report)
                 return {k: v for k, v in report.items() if k not in {'excel', 'archivos_sha256'}}
             return publish_zip(archive, public_zip, report)
-        if destination.exists():
+        if destination.exists() and not review:
             raise ValueError('Carpeta de resultados existente sin informe de entrega.')
-        rows, counts = build_rows(manifest, extraction, read_json(envio / 'catalogo.json'))
+        catalog = read_json(envio / 'catalogo.json')
+        rows, counts = build_rows(manifest, extraction, catalog)
         summaries = build_summary_rows(manifest, extraction, rows)
+        personal_counts = {
+            'personal_en_listado': len(catalog['personal']) if catalog.get('personal') is not None else None,
+            'filas_con_nombre_detectado': sum(bool(r['persona']) for r in rows),
+            'filas_con_nombre_bonificado': sum(bool(r['values'][1]) for r in rows),
+        }
+        if review:
+            return {**personal_counts, 'nombres_sin_cruce': list(dict.fromkeys(
+                r['persona'] for r in rows if r['persona'] and not r['values'][1]))}
         stage = envio / ('preparacion_' + uuid.uuid4().hex)
         (stage / 'evidencias').mkdir(parents=True)
         for doc in manifest['documentos']:
@@ -670,6 +784,7 @@ def finish(root, envio_path):
         report = {'version': VERSION, 'envio_id': envio.name, 'cliente': manifest['cliente'],
                   'documentos': len(manifest['documentos']), 'copias': len(manifest['documentos']),
                   'filas': len(rows), 'filas_resumen': len(summaries), 'entregables': ['zip'], 'filas_por_documento': counts,
+                  **personal_counts,
                   'filas_con_revision': sum(bool(r['values'][9]) for r in rows),
                   'zip': str(public_zip),
                   'datos_sha256': inputs_hash, 'zip_sha256': digest(archive)}
@@ -717,7 +832,7 @@ def create_zip(archive, folder):
 
 def main():
     parser = argparse.ArgumentParser(description='Analizador de evidencias: envíos independientes.')
-    parser.add_argument('accion', choices=['preparar', 'completar'])
+    parser.add_argument('accion', choices=['preparar', 'revisar', 'completar'])
     parser.add_argument('--root', required=True)
     parser.add_argument('--cliente')
     parser.add_argument('--archivos', nargs='+')
@@ -747,8 +862,8 @@ def main():
                 result['referencias_importadas'] = {kind: len(entries) for kind, entries in catalog.items()}
         else:
             if not args.envio:
-                parser.error('completar requiere --envio')
-            result = finish(args.root, args.envio)
+                parser.error('revisar y completar requieren --envio')
+            result = finish(args.root, args.envio, review=args.accion == 'revisar')
         print(json.dumps(result, ensure_ascii=False, indent=2))
     except (ValueError, OSError, KeyError, TypeError, zipfile.BadZipFile, RuntimeError) as ex:
         parser.exit(1, f'No se ha completado la operación: {ex}\n')

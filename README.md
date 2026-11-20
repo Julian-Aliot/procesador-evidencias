@@ -1,6 +1,6 @@
 # Analizador de evidencias
 
-Versión 1.3.0. Proyecto independiente para usar en su propio chat con Codex. Analiza evidencias de tareas, trabajos o participación en proyectos y entrega únicamente un ZIP con el Excel de dos hojas y las copias de los documentos en Google Drive privado.
+Versión 1.4.0. Proyecto independiente para usar en su propio chat con Codex. Analiza evidencias de tareas, trabajos o participación en proyectos y entrega únicamente un ZIP con el Excel de dos hojas y las copias de los documentos en Google Drive privado.
 
 ## Uso sencillo
 
@@ -42,7 +42,7 @@ python -m unittest discover -s 'NO TOCAR/tests' -v
 
 Este paquete contiene programa, documentación y plantillas vacías. Las entregas de usuarios contienen sus propios resultados y se guardan privadas en Drive.
 
-## Resumen documental (versión 1.3.0)
+## Resumen documental (versión 1.4.0)
 
 La primera hoja, Resumen, tiene exactamente nueve columnas: NOMBRE PRINCIPAL DE LA EVIDENCIA, OTROS NOMBRES, CÓDIGO DE PROYECTO, CÓDIGO DETECTADO, FECHA, TÍTULO, RESUMEN, NOMBRE DETECTADO, DESCRIPCIÓN TAREA. Una fila por identidad del manifiesto: siete PNG producen siete filas, aunque sean idénticos o tengan varias tareas. Un PDF de varias páginas cuenta como un documento.
 

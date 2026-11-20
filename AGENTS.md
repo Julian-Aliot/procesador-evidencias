@@ -1,4 +1,4 @@
-# Analizador de evidencias 1.3
+# Analizador de evidencias 1.4
 
 Este proyecto analiza evidencias de tareas, trabajos y participación en proyectos. Lee `NO TOCAR/AGENTS.md` y `NO TOCAR/skills/analizador-evidencias/SKILL.md` antes de trabajar.
 

@@ -167,6 +167,68 @@ class EnvioTests(unittest.TestCase):
         self.assertNotEqual(engine.normalized('PR-001'), engine.normalized('PR-1'))
         self.assertNotEqual(engine.normalized('PR-001'), engine.normalized('PR001'))
 
+    def test_accounts_from_reference_workbook_to_both_sheets(self):
+        roster = self.base / 'Equipo.xlsx'
+        wb = Workbook()
+        wb.active.append(['Apellidos, Nombre', 'Usuario', 'Alias'])
+        for values in [('Gil, Javier', '', ''), ('Costa, Vicente', '', ''),
+                       ('Vidal, Jorge', '', ''), ('Peña, Jorge', '', ''),
+                       ('Luz Mora', 'art42', 'art_42')]:
+            wb.active.append(values)
+        wb.save(roster)
+        other = self.base / 'historial.txt'
+        other.write_text('JorgeEquipo', encoding='utf-8')
+        run = [sys.executable, str(SCRIPT)]
+        envio = Path(json.loads(subprocess.check_output(run + ['preparar', '--root', str(self.root),
+            '--cliente', 'Prueba', '--personal', str(roster), '--archivos', str(self.source), str(other)]))['envio'])
+        data = engine.read_json(envio / 'extraccion.json')
+        def person(value, **kwargs):
+            return dict(valor=value, ubicacion='Historial', cita=value, rol='mencionado', **kwargs)
+        scope = {'ambito_cuenta': 'Git Equipo'}
+        suffix = {'valor': 'Equipo', 'ubicacion': 'Espacio de trabajo',
+                  'cita': 'Equipo: VicenteEquipo, JorgeEquipo'}
+        profile = dict(valor='Jorge Vidal', ubicacion='Ficha del usuario', cita='JorgeEquipo · Jorge Vidal')
+        data['documentos'][0]['actividades'][0]['personas'] = [
+            person('Xavi'), person('Vicente.Equipo', sufijo_equipo=suffix),
+            person('JorgeEquipo', perfil_vinculado=profile, **scope)]
+        data['documentos'][1]['actividades'][0]['personas'] = [
+            person('JorgeEquipo', **scope), person('JorgeEquipo', ambito_cuenta='Otro Git'),
+            person('Jorge-Equipo', sufijo_equipo=suffix), person('Vicente'), person('art42'),
+            person('art_42'), person('vicentedesignEquipo', sufijo_equipo=suffix),
+            person('Xavi', identidad_dudosa=True)]
+        engine.write_json(envio / 'extraccion.json', data)
+        args = ['--root', str(self.root), '--envio', str(envio)]
+        review = json.loads(subprocess.check_output(run + ['revisar'] + args))
+        self.assertEqual(review['personal_en_listado'], 5)
+        self.assertEqual(review['filas_con_nombre_detectado'], 11)
+        self.assertEqual(review['filas_con_nombre_bonificado'], 7)
+        self.assertIn('Jorge-Equipo', review['nombres_sin_cruce'])
+        self.assertFalse((envio / 'entrega.json').exists())
+        book = self.workbook(json.loads(subprocess.check_output(run + ['completar'] + args)))
+        self.addCleanup(book.close)
+        detail = book['DETALLE']
+        self.assertEqual([detail.cell(i, 2).value for i in range(2, 13)],
+                         ['Gil, Javier', 'Costa, Vicente', 'Vidal, Jorge', 'Vidal, Jorge', None,
+                          None, 'Costa, Vicente', 'Luz Mora', 'Luz Mora', None, None])
+        self.assertIn('JorgeEquipo · Jorge Vidal', detail['I5'].comment.text)
+        self.assertIn('Equipo.xlsx', detail['I5'].comment.text)
+        self.assertEqual(book['Resumen']['H3'].value, 'Vidal, Jorge\nCosta, Vicente\nLuz Mora')
+        self.assertEqual(detail['A3'].value, 'Vicente.Equipo')
+
+    def test_conflicting_profiles_and_nicknames(self):
+        def observed(name):
+            return {'valor': name, 'ubicacion': 'Perfil', 'cita': 'cuenta42 · ' + name}
+        people = [dict(valor='cuenta42', ambito_cuenta='Estudio', perfil_vinculado=observed(name))
+                  for name in ('Javier Mora', 'Xavier Sol')]
+        profiles = engine.collect_profiles([{'id': 'doc1', 'actividades': [{'personas': people}]}])
+        index = engine.catalog_indexes({'personal': [
+            {'nombre': n, 'origen': 'Personal, fila ' + str(i)}
+            for i, n in enumerate(('Javier Mora', 'Xavier Sol'), 2)]})['personal']
+        for person in [*people, {'valor': 'Xavi'}]:
+            reasons = []
+            self.assertEqual(engine.resolve_person(person, index, profiles, reasons, []), '')
+            self.assertTrue(reasons)
+
     def test_names_and_decorated_codes_in_delivered_zip(self):
         envio = self.prepare()
         self.fill(envio)

@@ -20,7 +20,7 @@ Los datos textuales se escriben como texto, incluidos los que empiezan por signo
 
 Recuentos requeridos antes de entregar, documentos = copias, todos los documentos presentes en filas y filas de detalle = suma de combinaciones persona/tarea por documento, y filas de Resumen = documentos. Un archivo idéntico a otro se conserva y se comunica. Cada envío se contrasta por separado.
 
-## Resumen documental (versión 1.3.0)
+## Resumen documental (versión 1.4.0)
 
 La primera hoja, Resumen, tiene exactamente nueve columnas: NOMBRE PRINCIPAL DE LA EVIDENCIA, OTROS NOMBRES, CÓDIGO DE PROYECTO, CÓDIGO DETECTADO, FECHA, TÍTULO, RESUMEN, NOMBRE DETECTADO, DESCRIPCIÓN TAREA. Una fila por identidad del manifiesto: siete PNG producen siete filas, aunque sean idénticos o tengan varias tareas. Un PDF de varias páginas cuenta como un documento.
 
