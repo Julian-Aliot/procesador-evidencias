@@ -20,10 +20,12 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 HEADERS = ['PERSONAS', 'CÓDIGO PROYECTO', 'NOMBRE PROYECTO', 'FECHA',
            'TÍTULO TAREA', 'RESUMEN EVIDENCIA', 'UBICACIÓN', 'ARCHIVO EVIDENCIA',
            'REVISIÓN', 'PERSONAL BONIFICADO DETECTADO', 'CÓDIGO DE PROYECTO DETECTADO']
+SUMMARY_HEADERS = ['NOMBRE PRINCIPAL DE LA EVIDENCIA', 'OTROS NOMBRES', 'CÓDIGO DE PROYECTO',
+                   'CÓDIGO DETECTADO', 'FECHA', 'TÍTULO', 'RESUMEN']
 SUPPORTED = {'.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.webp', '.bmp',
              '.xlsx', '.xlsm', '.xls', '.ods', '.csv', '.docx', '.doc', '.odt',
              '.pptx', '.txt', '.md', '.eml'}
@@ -320,7 +322,7 @@ def build_rows(manifest, extraction, catalog):
         activities = item.get('actividades')
         if not isinstance(activities, list) or not activities:
             raise ValueError('Cada documento debe tener al menos una actividad, incluso pendiente.')
-        counts[doc['id']] = len(activities)
+        counts[doc['id']] = 0
         for number, activity in enumerate(activities, 1):
             reasons = doc_reasons + text_list(activity.get('motivos_revision'), 'Motivos de revisión')
             locations, citations, names, name_roles, codes = [], [], [], [], []
@@ -376,13 +378,66 @@ def build_rows(manifest, extraction, catalog):
                       'Abrir evidencia', '\n'.join(dict.fromkeys(reasons)), detected_people, detected_codes]
             if any(isinstance(v, str) and len(v) > 32767 for v in values):
                 raise ValueError('Una celda supera 32767 caracteres; divide actividades con respaldo documental.')
-            rows.append({'documento_id': doc['id'], 'actividad': number, 'values': values,
-                         'citas': '\n'.join(citations)[:30000],
-                         'copia': Path(doc['ruta']).name})
+            # Una fila por persona/tarea; no atribuir el resto de personas a esa fila.
+            for person in activity['personas'] or [None]:
+                person_values = list(values)
+                person_reasons = list(reasons)
+                if person is not None:
+                    person_values[0] = person['valor'] + ' (' + person['rol'].replace('_', ' ') + ')'
+                    person_values[9] = matches([person['valor']], indexes['personal'],
+                                               'personal bonificado', person_reasons)
+                    person_values[8] = '\n'.join(dict.fromkeys(person_reasons))
+                trace = []
+                for entry in catalog.get('personal') or []:
+                    if entry['nombre'] in person_values[9].split('\n'):
+                        trace.append('Personal bonificado: ' + entry['nombre'] + ' | listado: ' + entry['origen'])
+                rows.append({'documento_id': doc['id'], 'actividad': number, 'values': person_values,
+                             'persona': person['valor'] if person else None,
+                             'citas': '\n'.join(citations + trace)[:30000],
+                             'copia': Path(doc['ruta']).name})
+                counts[doc['id']] += 1
     return rows, counts
 
 
-def make_excel(path, rows):
+def build_summary_rows(manifest, extraction, rows):
+    """Agrupa por identidad documental, nunca por hash o nombre de archivo."""
+    summaries = []
+    indexed = {d['id']: d for d in extraction['documentos']}
+    for doc in manifest['documentos']:
+        detail = [r for r in rows if r['documento_id'] == doc['id']]
+        def unique(values):
+            return list(dict.fromkeys(v for v in values if v is not None and v != ''))
+        names = unique(r.get('persona') for r in detail)
+        item = indexed[doc['id']]
+        meta = item.get('resumen_documento', {})
+        if not isinstance(meta, dict):
+            raise ValueError('resumen_documento debe ser un objeto.')
+        principal = validate_field(meta['nombre_principal'], 'nombre principal') if 'nombre_principal' in meta else (names[0] if len(names) == 1 else None)
+        if principal is not None and principal not in names:
+            raise ValueError('El nombre principal debe figurar entre las personas detectadas del documento.')
+        def joined(column):
+            return '\n'.join(unique(v for r in detail for v in (r['values'][column] or '').split('\n')))
+        dates = unique(r['values'][3] for r in detail)
+        title = validate_field(meta['titulo'], 'título del documento') if 'titulo' in meta else joined(4)
+        summary = validate_field(meta['resumen'], 'resumen del documento') if 'resumen' in meta else joined(5)
+        values = [principal, '\n'.join(n for n in names if n != principal), joined(1), joined(10),
+                  dates[0] if len(dates) == 1 else None, title or 'Sin título identificado', summary]
+        if any(isinstance(v, str) and len(v) > 32767 for v in values):
+            raise ValueError('Resumen documental demasiado largo; redacta resumen_documento de forma concisa.')
+        notes = [doc['id'], doc['nombre_original'], 'Detalle en hoja Evidencias.']
+        if len(dates) > 1:
+            notes.append('Varias fechas; consultar el detalle: ' + ', '.join(str(d) for d in dates))
+        notes.extend(unique(r['values'][8] for r in detail))
+        notes.extend(r['citas'] for r in detail)
+        for value in meta.values():
+            if isinstance(value, dict) and value.get('valor') is not None:
+                notes.append(str(value.get('ubicacion')) + ': ' + str(value.get('cita')))
+        summaries.append({'documento_id': doc['id'], 'values': values,
+                          'copia': Path(doc['ruta']).name, 'citas': '\n'.join(notes)[:30000]})
+    return summaries
+
+
+def make_excel(path, rows, summaries):
     wb = Workbook()
     ws = wb.active
     ws.title = 'Evidencias'
@@ -411,13 +466,39 @@ def make_excel(path, rows):
     table = Table(displayName='TablaEvidencias', ref=f'A1:K{len(rows) + 1}')
     table.tableStyleInfo = TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)
     ws.add_table(table)
+    summary = wb.create_sheet('Resumen', 0)
+    summary.append(SUMMARY_HEADERS)
+    for col, width in enumerate([34, 42, 28, 28, 16, 50, 80], 1):
+        summary.column_dimensions[summary.cell(1, col).column_letter].width = width
+    for number, item in enumerate(summaries, 2):
+        for col, value in enumerate(item['values'], 1):
+            cell = summary.cell(number, col, value)
+            if isinstance(value, str):
+                cell.data_type = 's'
+            cell.alignment = Alignment(vertical='top', wrap_text=True)
+        summary.cell(number, 5).number_format = 'dd/mm/yyyy'
+        link = summary.cell(number, 6)
+        link.hyperlink = 'evidencias/' + quote(item['copia'], safe='')
+        link.font = Font(color='0563C1', underline='single')
+        link.comment = Comment(item['citas'], 'Evidencias')
+        summary.row_dimensions[number].height = 110
+    for cell in summary[1]:
+        cell.fill = PatternFill('solid', fgColor='17365D')
+        cell.font = Font(color='FFFFFF', bold=True)
+        cell.alignment = Alignment(wrap_text=True, vertical='center')
+    summary.row_dimensions[1].height = 36
+    summary.freeze_panes = 'A2'
+    table = Table(displayName='TablaResumen', ref=f'A1:G{len(summaries) + 1}')
+    table.tableStyleInfo = TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)
+    summary.add_table(table)
+    wb.active = 0
     wb.save(path)
 
 
-def verify_excel(path, rows):
+def verify_excel(path, rows, summaries):
     wb = load_workbook(path)
-    if wb.sheetnames != ['Evidencias']:
-        raise ValueError('El libro debe tener una sola hoja Evidencias.')
+    if wb.sheetnames != ['Resumen', 'Evidencias']:
+        raise ValueError('El libro debe tener las hojas Resumen y Evidencias.')
     ws = wb['Evidencias']
     if [c.value for c in ws[1]] != HEADERS or ws.max_row != len(rows) + 1 or ws.max_column != 11:
         raise ValueError('Columnas o recuentos de Excel incorrectos.')
@@ -436,6 +517,23 @@ def verify_excel(path, rows):
             raise ValueError('Enlace relativo incorrecto.')
         if not (path.parent / unquote(link.target)).is_file():
             raise ValueError('El enlace apunta a una copia ausente.')
+    summary = wb['Resumen']
+    if ([c.value for c in summary[1]] != SUMMARY_HEADERS or summary.max_row != len(summaries) + 1
+            or summary.max_column != 7):
+        raise ValueError('Resumen debe contener exactamente una fila por documento y siete columnas.')
+    for number, item in enumerate(summaries, 2):
+        for col, expected in enumerate(item['values'], 1):
+            cell = summary.cell(number, col)
+            actual = cell.value.date() if isinstance(cell.value, datetime) else cell.value
+            if actual != (expected if expected != '' else None):
+                raise ValueError('El resumen no conserva sus valores.')
+            if isinstance(expected, str) and expected and cell.data_type != 's':
+                raise ValueError('Texto de resumen convertido en fórmula o número.')
+        link = summary.cell(number, 6).hyperlink
+        if link is None or link.target != 'evidencias/' + quote(item['copia'], safe=''):
+            raise ValueError('Enlace del resumen incorrecto.')
+        if not (path.parent / unquote(link.target)).is_file():
+            raise ValueError('Copia del resumen ausente.')
     wb.close()
 
 
@@ -464,7 +562,9 @@ def finish(root, envio_path):
         if manifest['envio_id'] != envio.name or state['envio_id'] != envio.name:
             raise ValueError('Identidad de envío incorrecta.')
         verify_originals(envio, manifest)
-        rows, counts = build_rows(manifest, read_json(envio / 'extraccion.json'), read_json(envio / 'catalogo.json'))
+        extraction = read_json(envio / 'extraccion.json')
+        rows, counts = build_rows(manifest, extraction, read_json(envio / 'catalogo.json'))
+        summaries = build_summary_rows(manifest, extraction, rows)
         inputs_hash = [digest(envio / name) for name in ['extraccion.json', 'catalogo.json']]
         destination = root / 'resultados' / simple_name(manifest['cliente']) / envio.name
         archive = envio / 'entrega.zip'
@@ -491,15 +591,15 @@ def finish(root, envio_path):
             if digest(target) != doc['sha256']:
                 raise ValueError('Una copia no coincide con su original.')
         excel_name = 'Evidencias_' + slug(manifest['cliente']) + '.xlsx'
-        make_excel(stage / excel_name, rows)
-        verify_excel(stage / excel_name, rows)
+        make_excel(stage / excel_name, rows, summaries)
+        verify_excel(stage / excel_name, rows, summaries)
         if len(list((stage / 'evidencias').iterdir())) != len(manifest['documentos']):
             raise ValueError('No coincide el número de documentos y copias.')
         verify_originals(envio, manifest)
         create_zip(archive, stage)
         report = {'version': VERSION, 'envio_id': envio.name, 'cliente': manifest['cliente'],
                   'documentos': len(manifest['documentos']), 'copias': len(manifest['documentos']),
-                  'filas': len(rows), 'filas_por_documento': counts,
+                  'filas': len(rows), 'filas_resumen': len(summaries), 'entregables': ['zip'], 'filas_por_documento': counts,
                   'filas_con_revision': sum(bool(r['values'][8]) for r in rows),
                   'excel': str(destination / excel_name), 'zip': str(archive),
                   'datos_sha256': inputs_hash, 'zip_sha256': digest(archive),

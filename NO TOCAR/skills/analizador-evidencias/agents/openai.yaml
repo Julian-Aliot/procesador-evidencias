@@ -1,4 +1,4 @@
 interface:
   display_name: "Analizador de evidencias"
   short_description: "Extrae tareas, personas y proyectos por envío independiente"
-  default_prompt: "Analiza las evidencias adjuntas para el cliente indicado y contrástalas con los listados aportados. Sigue la Skill y entrega Excel y ZIP en Drive privado."
+  default_prompt: "Analiza las evidencias adjuntas para el cliente indicado y contrástalas con los listados aportados. Sigue la Skill y entrega únicamente el ZIP con Excel de dos hojas y evidencias en Drive privado."

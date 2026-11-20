@@ -6,7 +6,7 @@ El usuario puede adjuntar personal bonificado, códigos de proyecto, ambos o nin
 
 ```json
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "personal": [
     {"nombre": "Ana García López", "aliases": ["Ana G. López"], "origen": "Personal.xlsx, hoja Personal, A2:B2"}
   ],

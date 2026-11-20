@@ -32,3 +32,9 @@ Las fechas usan AAAA-MM-DD. Su tipo es realizacion, participacion, documento, en
 Conserva completos los códigos, las nomenclaturas y el título observado. Los nombres abreviados se mantienen tal como aparecen. Una captura puede carecer de título, proyecto o fecha; registra esa ausencia. Los documentos corruptos y formatos sin lector conservan una copia y una fila pendiente.
 
 El control automático comprueba estructura, tipos, procedencia declarada e integridad. El agente verifica que las citas realmente figuren y apoyen los valores. La fila expresa la evidencia encontrada y sus límites.
+
+## Resumen por documento
+
+Cada documento puede incluir `resumen_documento`, objeto con `nombre_principal`, `titulo` y `resumen`, cada uno con el contrato `{valor, ubicacion, cita}` (null para ausencias). Cumplimenta título y resumen con una síntesis respaldada del documento completo. Nombre principal debe coincidir literalmente con una persona de sus actividades y tener respaldo contextual. Para varios nombres sin protagonista inequívoco, usa null. Sin este objeto, el script agrupa valores únicos de las actividades; selecciona nombre principal automáticamente solo cuando hay una única persona. No inventes una persona para completar el resumen.
+
+En actividades, vincula únicamente personas realmente relacionadas con la tarea y conserva sus roles. El generador desdobla cada actividad en una fila por persona (o una fila pendiente si no hay personas). Las coincidencias se contrastan y trazan individualmente. No crees duplicados artificiales ni relaciones por mera proximidad textual.
