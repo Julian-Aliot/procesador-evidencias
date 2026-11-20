@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -120,7 +121,21 @@ def read_document(path, output):
             'avisos': warnings, 'lectura_completa': False}
 
 
+CATALOG_HEADERS = {
+    'nombre': {'nombre', 'nombre completo', 'nombre bonificado', 'personal bonificado', 'nombre y apellidos', 'trabajador'},
+    'codigo': {'codigo', 'codigo proyecto', 'codigo de proyecto', 'codigo bonificado', 'codigo interno'},
+    'aliases': {'aliases', 'alias'},
+}
+
+
+def catalog_header(value):
+    key = ' '.join(''.join(c for c in unicodedata.normalize('NFD', str(value or '').casefold())
+                           if not unicodedata.combining(c)).replace('_', ' ').split())
+    return next((name for name, variants in CATALOG_HEADERS.items() if key in variants), key)
+
+
 def import_catalog(path, kind):
+    field_name = 'nombre' if kind == 'personal' else 'codigo'
     rows = []
     if path.suffix.lower() in {'.xlsx', '.xlsm'}:
         safe_office(path)
@@ -128,11 +143,15 @@ def import_catalog(path, kind):
         for ws in wb.worksheets:
             if ws.max_row * ws.max_column > 2000000:
                 raise ValueError('Listado demasiado grande para importación automática.')
-            values = list(ws.values)
-            if values:
-                headers = [str(v).strip().casefold() if v is not None else '' for v in values[0]]
-                for number, row in enumerate(values[1:], 2):
-                    rows.append((dict(zip(headers, row)), f'{path.name}, hoja {ws.title}, fila {number}'))
+            numbered = enumerate(ws.values, 1)
+            for _, row in numbered:
+                headers = [catalog_header(v) for v in row]
+                if field_name in headers:
+                    if headers.count(field_name) > 1:
+                        raise ValueError(f'Encabezados ambiguos en {ws.title}: {field_name}')
+                    for number, record in numbered:
+                        rows.append((dict(zip(headers, record)), f'{path.name}, hoja {ws.title}, fila {number}'))
+                    break
         wb.close()
     elif path.suffix.lower() == '.csv':
         content = decode_text(path)
@@ -141,10 +160,9 @@ def import_catalog(path, kind):
         except csv.Error:
             dialect = csv.excel
         for number, row in enumerate(csv.DictReader(io.StringIO(content), dialect=dialect), 2):
-            rows.append(({str(k).strip().casefold(): v for k, v in row.items() if k is not None}, f'{path.name}, fila {number}'))
+            rows.append(({catalog_header(k): v for k, v in row.items() if k is not None}, f'{path.name}, fila {number}'))
     else:
         raise ValueError('Importación automática de listados disponible para CSV y XLSX. Otros formatos se interpretan con evidencias por el agente.')
-    field_name = 'nombre' if kind == 'personal' else 'codigo'
     result = []
     for row, origin in rows:
         raw = row.get(field_name)
@@ -154,6 +172,13 @@ def import_catalog(path, kind):
             continue
         if not isinstance(raw, str) or raw.startswith('='):
             raise ValueError(f'{field_name} debe ser texto literal en {origin}; conserva ceros y evita fórmulas.')
+        if field_name == 'nombre':
+            # En hojas con nombre y apellidos separados, conservar la identidad completa.
+            surnames = [row[k] for k in ('apellidos',) if row.get(k)]
+            if not surnames:
+                surnames = [row[k] for k in ('primer apellido', 'segundo apellido') if row.get(k)]
+            if surnames:
+                raw = ' '.join([raw.strip()] + [str(v).strip() for v in surnames])
         aliases = row.get('aliases') or ''
         if not isinstance(aliases, str) or aliases.startswith('='):
             raise ValueError('Los alias deben ser texto literal separado por |.')

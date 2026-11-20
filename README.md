@@ -1,14 +1,14 @@
 # Analizador de evidencias
 
-Versión 1.2.0. Proyecto independiente para usar en su propio chat con Codex. Analiza evidencias de tareas, trabajos o participación en proyectos y entrega únicamente un ZIP con el Excel de dos hojas y las copias de los documentos en Google Drive privado.
+Versión 1.3.0. Proyecto independiente para usar en su propio chat con Codex. Analiza evidencias de tareas, trabajos o participación en proyectos y entrega únicamente un ZIP con el Excel de dos hojas y las copias de los documentos en Google Drive privado.
 
 ## Uso sencillo
 
 Abre esta carpeta como raíz de proyecto. Escribe «Lee AGENTS.md y sigue la Skill de este proyecto». Después adjunta evidencias y pide «Analiza estas evidencias para Empresa A». Puedes añadir listados de personal bonificado y códigos de proyecto indicando que son referencias para contrastar.
 
-Cada envío es independiente y conserva los anteriores. En Evidencias, cada combinación documentada de persona y tarea genera una fila; sin persona, conserva una fila por tarea. En Resumen, cada documento genera exactamente una fila. Un documento con varias tareas justificadas genera varias filas que apuntan a su copia. Los datos desconocidos quedan pendientes de revisión. Una persona mencionada conserva su rol para poder interpretar la evidencia.
+Cada envío es independiente y conserva los anteriores. En DETALLE, cada combinación documentada de persona y tarea genera una fila; sin persona, conserva una fila por tarea. En Resumen, cada documento genera exactamente una fila. Un documento con varias tareas justificadas genera varias filas que apuntan a su copia. Los datos desconocidos quedan pendientes de revisión. Una persona mencionada conserva su rol para poder interpretar la evidencia.
 
-Las columnas PERSONAL BONIFICADO DETECTADO y CÓDIGO DE PROYECTO DETECTADO se calculan a partir de coincidencias únicas contra los listados aportados. Los alias requieren autorización o presencia explícita en el listado. Sin listado, ambas columnas permanecen disponibles y se señala contraste pendiente.
+Las columnas NOMBRE BONIFICADO y CÓDIGO BONIFICADO se calculan a partir de coincidencias únicas contra los listados aportados. Los alias requieren autorización o presencia explícita en el listado. Sin listado, ambas columnas permanecen disponibles y se señala contraste pendiente.
 
 ## Archivos
 
@@ -42,14 +42,16 @@ python -m unittest discover -s 'NO TOCAR/tests' -v
 
 Este paquete contiene programa, documentación y plantillas vacías. Las entregas de usuarios contienen sus propios resultados y se guardan privadas en Drive.
 
-## Resumen documental (versión 1.2.0)
+## Resumen documental (versión 1.3.0)
 
 La primera hoja, Resumen, tiene exactamente nueve columnas: NOMBRE PRINCIPAL DE LA EVIDENCIA, OTROS NOMBRES, CÓDIGO DE PROYECTO, CÓDIGO DETECTADO, FECHA, TÍTULO, RESUMEN, NOMBRE DETECTADO, DESCRIPCIÓN TAREA. Una fila por identidad del manifiesto: siete PNG producen siete filas, aunque sean idénticos o tengan varias tareas. Un PDF de varias páginas cuenta como un documento.
 
 Nombre principal es la persona protagonista de la evidencia, respaldada por su contexto; otros nombres recoge las restantes personas únicas. No elijas protagonista por orden de aparición ni por pertenecer al listado bonificado. Si hay varias personas sin principal inequívoco, deja principal vacío y conserva todas en otros nombres. Código de proyecto conserva códigos literales; código detectado contiene únicamente coincidencias canónicas con el listado de proyectos opcional. Sin listado, queda vacío. Si hay varios códigos, consérvalos en la misma celda. Fecha contiene una fecha única; con varias fechas distintas queda vacía y el comentario remite al detalle. Título y resumen sintetizan el documento completo sin multiplicar filas. El título enlaza a la copia; su comentario conserva archivo original, ID, citas e incidencias. Si no consta título, usa la etiqueta «Sin título identificado».
 
-Evidencias conserva las once columnas. El cruce de PERSONAL BONIFICADO DETECTADO se realiza para la persona de cada fila, con coincidencias exactas, abreviadas o por alias cuando la identificación es inequívoca. El comentario del enlace conserva nombre canónico, origen del listado y citas del documento; permite trazar Resumen → Evidencias → copia original. No completes el campo con otros compañeros de la misma tarea. Sin listado, el campo queda vacío y REVISIÓN indica contraste pendiente.
+DETALLE conserva las once columnas. El cruce de NOMBRE BONIFICADO se realiza para la persona de cada fila, con coincidencias exactas, abreviadas o por alias cuando la identificación es inequívoca. El comentario del enlace conserva nombre canónico, origen del listado y citas del documento; permite trazar Resumen → DETALLE → copia original. No completes el campo con otros compañeros de la misma tarea. Sin listado, el campo queda vacío y REVISIÓN indica contraste pendiente.
 
 La entrega al usuario es únicamente el ZIP. El Excel de dos hojas va dentro, junto con evidencias/. No se publica por separado.
 
 En Resumen, NOMBRE DETECTADO reúne los nombres canónicos contrastados de todas las personas de la evidencia, una vez por nombre. Para DESCRIPCIÓN TAREA, redacta en resumen_documento.descripcion_tarea una frase breve de acción y objeto con valor, ubicación y cita. Por ejemplo, «Desarrollo del modelo de la cabra» o «Compositing del plano 024». Si hay varias tareas, sintetiza el trabajo acreditado. Si no se puede identificar, deja el valor vacío y anota el motivo en incidencias_documento.
+
+Al preparar el envío, pasa el Excel o CSV de personal con --personal y el de proyectos con --proyectos. Un libro con ambas hojas puede usarse para ambos parámetros. Comprueba referencias_importadas. Si los encabezados o el formato requieren lectura manual, conserva los listados y completa catalogo.json con los valores y ubicaciones verificados antes de ejecutar completar. Los listados son opcionales e independientes.

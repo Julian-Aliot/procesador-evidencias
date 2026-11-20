@@ -20,10 +20,10 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-VERSION = '1.2.0'
-HEADERS = ['PERSONAS', 'CÓDIGO PROYECTO', 'NOMBRE PROYECTO', 'FECHA',
-           'TÍTULO TAREA', 'RESUMEN EVIDENCIA', 'UBICACIÓN', 'ARCHIVO EVIDENCIA',
-           'REVISIÓN', 'PERSONAL BONIFICADO DETECTADO', 'CÓDIGO DE PROYECTO DETECTADO']
+VERSION = '1.3.0'
+HEADERS = ['NOMBRE DETECTADO', 'NOMBRE BONIFICADO', 'CÓDIGO DETECTADO', 'CÓDIGO BONIFICADO',
+           'FECHA', 'TÍTULO TAREA', 'RESUMEN EVIDENCIA', 'UBICACIÓN', 'ARCHIVO EVIDENCIA',
+           'REVISIÓN', 'DESCRIPCIÓN TAREA']
 SUMMARY_HEADERS = ['NOMBRE PRINCIPAL DE LA EVIDENCIA', 'OTROS NOMBRES', 'CÓDIGO DE PROYECTO',
                    'CÓDIGO DETECTADO', 'FECHA', 'TÍTULO', 'RESUMEN', 'NOMBRE DETECTADO', 'DESCRIPCIÓN TAREA']
 SUPPORTED = {'.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.webp', '.bmp',
@@ -161,7 +161,7 @@ def field():
 
 def empty_activity(reason):
     return {'personas': [], 'codigos_proyecto': [],
-            **{key: field() for key in SCALARS}, 'tipo_fecha': None,
+            **{key: field() for key in SCALARS}, 'descripcion_tarea': field(), 'tipo_fecha': None,
             'motivos_revision': [reason]}
 
 
@@ -374,7 +374,7 @@ def build_rows(manifest, extraction, catalog):
         counts[doc['id']] = 0
         for number, activity in enumerate(activities, 1):
             reasons = doc_reasons + text_list(activity.get('motivos_revision'), 'Motivos de revisión')
-            locations, citations, names, name_roles, codes = [], [], [], [], []
+            locations, citations, names, codes = [], [], [], []
             for group in ['personas', 'codigos_proyecto']:
                 values = activity.get(group)
                 if not isinstance(values, list):
@@ -390,7 +390,6 @@ def build_rows(manifest, extraction, catalog):
                         if role not in ROLES:
                             raise ValueError('Asigna un rol válido a cada persona detectada.')
                         names.append(value)
-                        name_roles.append(value + ' (' + role.replace('_', ' ') + ')')
                         if role == 'no_determinado':
                             reasons.append('Papel de la persona sin determinar: ' + value)
                     else:
@@ -418,36 +417,46 @@ def build_rows(manifest, extraction, catalog):
                     raise ValueError('Debe indicarse el tipo de fecha extraída.')
                 if kind not in {'realizacion', 'participacion'}:
                     reasons.append('La fecha corresponde a ' + kind + '; la realización queda pendiente.')
-            detected_codes = matches(codes, indexes['proyectos'], 'proyectos', reasons)
+            code_matches = [matches([code], indexes['proyectos'], 'proyectos', reasons) for code in codes]
+            if not codes:
+                matches([], indexes['proyectos'], 'proyectos', reasons)
             if not item['lectura_completa']:
                 reasons.append('Las detecciones reflejan únicamente el contenido legible revisado.')
-            values = ['\n'.join(name_roles), '\n'.join(codes), scalars['nombre_proyecto'], excel_date,
-                      scalars['titulo_tarea'], scalars['resumen'], '\n'.join(dict.fromkeys(locations)),
-                      'Abrir evidencia', '\n'.join(dict.fromkeys(reasons)), '', detected_codes]
-            if any(isinstance(v, str) and len(v) > 32767 for v in values):
-                raise ValueError('Una celda supera 32767 caracteres; divide actividades con respaldo documental.')
-            # Una fila por persona/tarea; no atribuir el resto de personas a esa fila.
+            description = validate_field(activity.get('descripcion_tarea', field()), 'descripcion_tarea')
+            if not description and len(activities) == 1:
+                description = validate_field(item.get('resumen_documento', {}).get('descripcion_tarea', field()), 'descripcion_tarea')
+            if not description:
+                description = scalars['titulo_tarea']
+            elif activity.get('descripcion_tarea', {}).get('valor'):
+                source = activity['descripcion_tarea']
+                citations.append(source['ubicacion'] + ': ' + source['cita'])
             for person in activity['personas'] or [None]:
-                person_values = list(values)
                 person_reasons = list(reasons)
-                if person is not None:
-                    person_values[0] = person['valor'] + ' (' + person['rol'].replace('_', ' ') + ')'
-                    if person.get('identidad_dudosa') is True:
-                        person_reasons.append('Identidad dudosa según la evidencia: ' + person['valor'])
-                    else:
-                        person_values[9] = matches([person['valor']], indexes['personal'],
-                                               'personal bonificado', person_reasons,
-                                               identified=person['rol'] in {'autor', 'participante', 'responsable', 'destinatario'})
+                literal = person['valor'] if person else None
+                canonical = ''
+                if person and person.get('identidad_dudosa') is True:
+                    person_reasons.append('Identidad dudosa según la evidencia: ' + literal)
                 else:
-                    matches([], indexes['personal'], 'personal bonificado', person_reasons)
-                person_values[8] = '\n'.join(dict.fromkeys(person_reasons))
+                    canonical = matches([literal] if person else [], indexes['personal'],
+                                        'personal bonificado', person_reasons,
+                                        identified=bool(person and person['rol'] in {'autor', 'participante', 'responsable', 'destinatario'}))
                 trace = []
+                if person:
+                    trace.append(f"{literal} ({person['rol']}) · {person['ubicacion']}: {person['cita']}")
                 for entry in catalog.get('personal') or []:
-                    if entry['nombre'] in person_values[9].split('\n'):
-                        trace.append('Personal bonificado: ' + entry['nombre'] + ' | listado: ' + entry['origen'])
-                rows.append({'documento_id': doc['id'], 'actividad': number, 'values': person_values,
-                             'persona': person['valor'] if person else None,
-                             'citas': '\n'.join(citations + trace)[:30000],
+                    if canonical == entry['nombre']:
+                        trace.append('Personal bonificado: ' + canonical + ' | listado: ' + entry['origen'])
+                for entry in catalog.get('proyectos') or []:
+                    if entry['codigo'] in code_matches:
+                        trace.append('Código bonificado: ' + entry['codigo'] + ' | listado: ' + entry['origen'])
+                values = [literal, canonical, '\n'.join(codes),
+                          '\n'.join(code_matches) if any(code_matches) else '', excel_date,
+                          scalars['titulo_tarea'], scalars['resumen'], '\n'.join(dict.fromkeys(locations)),
+                          'Abrir evidencia', '\n'.join(dict.fromkeys(person_reasons)), description]
+                if any(isinstance(v, str) and len(v) > 32767 for v in values):
+                    raise ValueError('Una celda supera la longitud máxima de Excel.')
+                rows.append({'documento_id': doc['id'], 'actividad': number, 'values': values,
+                             'persona': literal, 'citas': '\n'.join(trace + citations)[:30000],
                              'copia': Path(doc['ruta']).name})
                 counts[doc['id']] += 1
     return rows, counts
@@ -471,20 +480,21 @@ def build_summary_rows(manifest, extraction, rows):
             raise ValueError('El nombre principal debe figurar entre las personas detectadas del documento.')
         def joined(column):
             return '\n'.join(unique(v for r in detail for v in (r['values'][column] or '').split('\n')))
-        dates = unique(r['values'][3] for r in detail)
-        title = validate_field(meta['titulo'], 'título del documento') if 'titulo' in meta else joined(4)
-        summary = validate_field(meta['resumen'], 'resumen del documento') if 'resumen' in meta else joined(5)
+        dates = unique(r['values'][4] for r in detail)
+        title = validate_field(meta['titulo'], 'título del documento') if 'titulo' in meta else joined(5)
+        summary = validate_field(meta['resumen'], 'resumen del documento') if 'resumen' in meta else joined(6)
         task = validate_field(meta['descripcion_tarea'], 'descripción tarea') if 'descripcion_tarea' in meta else None
+        task = task or joined(10)
         if extraction.get('version') == VERSION and summary and not task and item['lectura_completa'] and not item['incidencias_documento']:
             raise ValueError('Completa descripcion_tarea con la acción y su objeto o registra por qué no se puede identificar.')
-        values = [principal, '\n'.join(n for n in names if n != principal), joined(1), joined(10),
-                  dates[0] if len(dates) == 1 else None, title or 'Sin título identificado', summary, joined(9), task]
+        values = [principal, '\n'.join(n for n in names if n != principal), joined(2), joined(3),
+                  dates[0] if len(dates) == 1 else None, title or 'Sin título identificado', summary, joined(1), task]
         if any(isinstance(v, str) and len(v) > 32767 for v in values):
             raise ValueError('Resumen documental demasiado largo; redacta resumen_documento de forma concisa.')
-        notes = [doc['id'], doc['nombre_original'], 'Detalle en hoja Evidencias.']
+        notes = [doc['id'], doc['nombre_original'], 'Detalle en hoja DETALLE.']
         if len(dates) > 1:
             notes.append('Varias fechas; consultar el detalle: ' + ', '.join(str(d) for d in dates))
-        notes.extend(unique(r['values'][8] for r in detail))
+        notes.extend(unique(r['values'][9] for r in detail))
         notes.extend(r['citas'] for r in detail)
         for value in meta.values():
             if isinstance(value, dict) and value.get('valor') is not None:
@@ -497,9 +507,9 @@ def build_summary_rows(manifest, extraction, rows):
 def make_excel(path, rows, summaries):
     wb = Workbook()
     ws = wb.active
-    ws.title = 'Evidencias'
+    ws.title = 'DETALLE'
     ws.append(HEADERS)
-    widths = [34, 25, 32, 14, 45, 55, 35, 23, 55, 35, 30]
+    widths = [32, 36, 32, 28, 16, 45, 55, 35, 23, 55, 55]
     for index, width in enumerate(widths, 1):
         ws.column_dimensions[ws.cell(1, index).column_letter].width = width
     for row_number, item in enumerate(rows, 2):
@@ -508,11 +518,11 @@ def make_excel(path, rows, summaries):
             if isinstance(value, str):
                 cell.data_type = 's'  # Incluye textos que comienzan por =, +, - o @.
             cell.alignment = Alignment(vertical='top', wrap_text=True)
-        ws.cell(row_number, 4).number_format = 'dd/mm/yyyy'
-        link = ws.cell(row_number, 8)
+        ws.cell(row_number, 5).number_format = 'dd/mm/yyyy'
+        link = ws.cell(row_number, 9)
         link.hyperlink = 'evidencias/' + quote(item['copia'], safe='')
         link.font = Font(color='0563C1', underline='single')
-        link.comment = Comment(item['documento_id'] + '\n' + item['citas'], 'Evidencias')
+        link.comment = Comment(item['documento_id'] + '\n' + item['citas'], 'DETALLE')
         ws.row_dimensions[row_number].height = 110
     for cell in ws[1]:
         cell.fill = PatternFill('solid', fgColor='17365D')
@@ -537,7 +547,7 @@ def make_excel(path, rows, summaries):
         link = summary.cell(number, 6)
         link.hyperlink = 'evidencias/' + quote(item['copia'], safe='')
         link.font = Font(color='0563C1', underline='single')
-        link.comment = Comment(item['citas'], 'Evidencias')
+        link.comment = Comment(item['citas'], 'DETALLE')
         summary.row_dimensions[number].height = 110
     for cell in summary[1]:
         cell.fill = PatternFill('solid', fgColor='17365D')
@@ -554,9 +564,9 @@ def make_excel(path, rows, summaries):
 
 def verify_excel(path, rows, summaries):
     wb = load_workbook(path)
-    if wb.sheetnames != ['Resumen', 'Evidencias']:
-        raise ValueError('El libro debe tener las hojas Resumen y Evidencias.')
-    ws = wb['Evidencias']
+    if wb.sheetnames != ['Resumen', 'DETALLE']:
+        raise ValueError('El libro debe tener las hojas Resumen y DETALLE.')
+    ws = wb['DETALLE']
     if [c.value for c in ws[1]] != HEADERS or ws.max_row != len(rows) + 1 or ws.max_column != 11:
         raise ValueError('Columnas o recuentos de Excel incorrectos.')
     for number, item in enumerate(rows, 2):
@@ -569,7 +579,7 @@ def verify_excel(path, rows, summaries):
                 raise ValueError('El Excel no conserva los valores extraídos.')
             if isinstance(expected, str) and expected and cell.data_type != 's':
                 raise ValueError('Un texto se ha convertido en fórmula o número.')
-        link = ws.cell(number, 8).hyperlink
+        link = ws.cell(number, 9).hyperlink
         if link is None or link.target != 'evidencias/' + quote(item['copia'], safe=''):
             raise ValueError('Enlace relativo incorrecto.')
         if not (path.parent / unquote(link.target)).is_file():
@@ -660,7 +670,7 @@ def finish(root, envio_path):
         report = {'version': VERSION, 'envio_id': envio.name, 'cliente': manifest['cliente'],
                   'documentos': len(manifest['documentos']), 'copias': len(manifest['documentos']),
                   'filas': len(rows), 'filas_resumen': len(summaries), 'entregables': ['zip'], 'filas_por_documento': counts,
-                  'filas_con_revision': sum(bool(r['values'][8]) for r in rows),
+                  'filas_con_revision': sum(bool(r['values'][9]) for r in rows),
                   'zip': str(public_zip),
                   'datos_sha256': inputs_hash, 'zip_sha256': digest(archive)}
         # El informe precede a la publicación. Permite recuperar una interrupción posterior al rename.
@@ -711,13 +721,30 @@ def main():
     parser.add_argument('--root', required=True)
     parser.add_argument('--cliente')
     parser.add_argument('--archivos', nargs='+')
+    parser.add_argument('--personal', type=Path, help='Listado de personal XLSX o CSV')
+    parser.add_argument('--proyectos', type=Path, help='Listado de proyectos XLSX o CSV')
     parser.add_argument('--envio')
     args = parser.parse_args()
     try:
         if args.accion == 'preparar':
             if not args.cliente or not args.archivos:
                 parser.error('preparar requiere --cliente y --archivos')
+            from lectura import import_catalog
+            references = {kind: path for kind, path in [('personal', args.personal), ('proyectos', args.proyectos)] if path}
+            inputs = {path.resolve() for path, _ in selected_files(args.archivos)}
+            if any(path.resolve() in inputs for path in references.values()):
+                raise ValueError('Selecciona los listados aparte de los documentos de evidencia.')
+            catalog = {kind: import_catalog(path, kind) for kind, path in references.items()}
             result = prepare(args.root, args.cliente, args.archivos)
+            if references:
+                for kind, path in references.items():
+                    folder = Path(result['envio']) / 'listados' / kind
+                    folder.mkdir(parents=True)
+                    shutil.copyfile(path, folder / path.name)
+                stored = read_json(result['catalogo'])
+                stored.update(catalog)
+                write_json(result['catalogo'], stored)
+                result['referencias_importadas'] = {kind: len(entries) for kind, entries in catalog.items()}
         else:
             if not args.envio:
                 parser.error('completar requiere --envio')

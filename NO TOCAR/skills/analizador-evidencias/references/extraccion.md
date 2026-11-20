@@ -17,6 +17,7 @@ Cada actividad sigue esta estructura. Los valores de demostración ilustran el e
   "nombre_proyecto": {"valor": null, "ubicacion": null, "cita": null},
   "fecha": {"valor": "2026-11-19", "ubicacion": "Página 1, Fecha de actividad", "cita": "Fecha de actividad: 19/11/2026"},
   "tipo_fecha": "realizacion",
+  "descripcion_tarea": {"valor": "Compositing del plano 024", "ubicacion": "Panel de tareas", "cita": "Plano 024, compositing"},
   "titulo_tarea": {"valor": "Título literal", "ubicacion": "Página 1, título", "cita": "Título literal"},
   "resumen": {"valor": "Descripción breve de la evidencia.", "ubicacion": "Página 1, cuerpo", "cita": "Fragmento que respalda el resumen"},
   "motivos_revision": []
@@ -42,3 +43,5 @@ En actividades, vincula únicamente personas realmente relacionadas con la tarea
 En Resumen, NOMBRE DETECTADO reúne los nombres canónicos contrastados de todas las personas de la evidencia, una vez por nombre. Para DESCRIPCIÓN TAREA, redacta en resumen_documento.descripcion_tarea una frase breve de acción y objeto con valor, ubicación y cita. Por ejemplo, «Desarrollo del modelo de la cabra» o «Compositing del plano 024». Si hay varias tareas, sintetiza el trabajo acreditado. Si no se puede identificar, deja el valor vacío y anota el motivo en incidencias_documento.
 
 En capturas, transcribe códigos junto con sus prefijos o sufijos visibles en codigos_proyecto, con región y cita. Conserva cada nombre literal. Si es dudosa la correspondencia de identidad, añade identidad_dudosa: true a esa persona.
+
+Completa descripcion_tarea por actividad en DETALLE y resume el conjunto en resumen_documento.descripcion_tarea para Resumen. En ambos casos redacta acción y objeto con respaldo documental.

@@ -3,11 +3,13 @@ import io
 import json
 from pathlib import Path
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 PROJECT = Path(__file__).resolve().parents[2]
 SCRIPT = PROJECT / 'NO TOCAR/skills/analizador-evidencias/scripts/envios.py'
@@ -63,15 +65,15 @@ class EnvioTests(unittest.TestCase):
         self.assertEqual((report['documentos'], report['copias'], report['filas']), (1, 1, 2))
         wb = self.workbook(report)
         self.addCleanup(wb.close)
-        self.assertEqual(wb.sheetnames, ['Resumen', 'Evidencias'])
-        ws = wb['Evidencias']
+        self.assertEqual(wb.sheetnames, ['Resumen', 'DETALLE'])
+        ws = wb['DETALLE']
         self.assertEqual([c.value for c in ws[1]], engine.HEADERS)
-        self.assertEqual(ws['E2'].value, '=Tarea literal')
-        self.assertEqual(ws['E2'].data_type, 's')
-        self.assertTrue(ws['D2'].is_date)
-        self.assertEqual(ws['J2'].value, 'Ana García')
-        self.assertEqual(ws['K2'].value, 'PR-001')
-        self.assertEqual(ws['H2'].hyperlink.target, ws['H3'].hyperlink.target)
+        self.assertEqual(ws['F2'].value, '=Tarea literal')
+        self.assertEqual(ws['F2'].data_type, 's')
+        self.assertTrue(ws['E2'].is_date)
+        self.assertEqual(ws['B2'].value, 'Ana García')
+        self.assertEqual(ws['D2'].value, 'PR-001')
+        self.assertEqual(ws['I2'].hyperlink.target, ws['I3'].hyperlink.target)
         with zipfile.ZipFile(report['zip']) as z:
             self.assertEqual(len(z.namelist()), 2)
             self.assertIsNone(z.testzip())
@@ -103,7 +105,7 @@ class EnvioTests(unittest.TestCase):
         self.assertEqual(report['entregables'], ['zip'])
         wb = self.workbook(report)
         self.addCleanup(wb.close)
-        summary, detail = wb['Resumen'], wb['Evidencias']
+        summary, detail = wb['Resumen'], wb['DETALLE']
         self.assertNotIn('excel', report)
         self.assertEqual(list(Path(report['zip']).parent.iterdir()), [Path(report['zip'])])
         self.assertEqual(summary['H2'].value, 'Ana García')
@@ -113,9 +115,9 @@ class EnvioTests(unittest.TestCase):
         self.assertIsNone(summary['A2'].value)
         self.assertEqual(summary['B2'].value, 'Ana García\nLuis Pérez')
         self.assertEqual(summary['D2'].value, 'PR-001')
-        self.assertEqual(detail['J2'].value, 'Ana García')
-        self.assertIsNone(detail['J3'].value)
-        self.assertIn('Personal, A2', detail['H2'].comment.text)
+        self.assertEqual(detail['B2'].value, 'Ana García')
+        self.assertIsNone(detail['B3'].value)
+        self.assertIn('Personal, A2', detail['I2'].comment.text)
         self.assertEqual(summary['F2'].data_type, 's')
         self.assertEqual(summary['F2'].value, '=Tarea literal')
 
@@ -139,7 +141,7 @@ class EnvioTests(unittest.TestCase):
         self.assertIsNone(wb['Resumen']['D2'].value)
         self.assertEqual(wb['Resumen']['F2'].value, 'Título global')
         self.assertIn('Varias fechas', wb['Resumen']['F2'].comment.text)
-        self.assertIsNone(wb['Evidencias']['J2'].value)
+        self.assertIsNone(wb['DETALLE']['B2'].value)
 
     def test_same_client_same_files_produces_separate_shipments(self):
         first, second = self.prepare(), self.prepare()
@@ -183,13 +185,59 @@ class EnvioTests(unittest.TestCase):
             engine.write_json(current / 'catalogo.json', cat)
             wb = self.workbook(engine.finish(self.root, current))
             self.addCleanup(wb.close)
-            return [wb['Resumen'][c].value for c in ['H2', 'D2']] + [wb['Evidencias']['J2'].value]
+            return [wb['Resumen'][c].value for c in ['H2', 'D2']] + [wb['DETALLE']['B2'].value]
         self.assertEqual(run('A. García', 'plano_PR-001_004', ['Ana García']),
                          ['Ana García', 'PR-001', 'Ana García'])
         self.assertEqual(run('Fran', 'PR-0012', ['Francisco López']), ['Francisco López', None, 'Francisco López'])
         self.assertEqual(run('Ana', 'PR-001', ['Ana García', 'Ana Pérez']), [None, 'PR-001', None])
         self.assertTrue(engine.embedded_code('seq_atlas042_comp', 'atlas'))
         self.assertFalse(engine.embedded_code('atlasmar042', 'atlas'))
+
+    def test_cli_imports_reference_workbook_and_publishes_literal_and_canonical_columns(self):
+        path = self.base / 'Listados.xlsx'
+        wb = Workbook()
+        wb.active.title = 'Personal'
+        wb.active.append(['Equipo 2026'])
+        wb.active.append(['Nombre', 'Apellidos'])
+        wb.active.append(['Ana', 'García López'])
+        projects = wb.create_sheet('Proyectos')
+        projects.append(['Código de proyecto'])
+        projects.append(['PR-001'])
+        wb.save(path)
+        for people, codes in [(True, True), (False, False), (True, False), (False, True)]:
+            with self.subTest(people=people, codes=codes):
+                cmd = [sys.executable, str(SCRIPT), 'preparar', '--root', str(self.root),
+                       '--cliente', 'Cliente', '--archivos', str(self.source)]
+                if people:
+                    cmd += ['--personal', str(path)]
+                if codes:
+                    cmd += ['--proyectos', str(path)]
+                envio = Path(json.loads(subprocess.check_output(cmd))['envio'])
+                extracted = engine.read_json(envio / 'extraccion.json')
+                doc = extracted['documentos'][0]
+                activity = doc['actividades'][0]
+                def observed(value):
+                    return {'valor': value, 'ubicacion': 'Captura, panel de tarea', 'cita': value}
+                activity['personas'] = [dict(observed('A. García'), rol='autor')]
+                activity['codigos_proyecto'] = [observed('shot_PR-001_042')]
+                activity['descripcion_tarea'] = observed('Compositing del plano 042')
+                activity['motivos_revision'] = []
+                doc['lectura_completa'] = True
+                engine.write_json(envio / 'extraccion.json', extracted)
+                report = json.loads(subprocess.check_output(
+                    [sys.executable, str(SCRIPT), 'completar', '--root', str(self.root), '--envio', str(envio)]))
+                book = self.workbook(report)
+                self.addCleanup(book.close)
+                detail = book['DETALLE']
+                self.assertEqual([c.value for c in detail[1][:4]],
+                                 ['NOMBRE DETECTADO', 'NOMBRE BONIFICADO', 'CÓDIGO DETECTADO', 'CÓDIGO BONIFICADO'])
+                self.assertEqual([c.value for c in detail[2][:4]],
+                                 ['A. García', 'Ana García López' if people else None,
+                                  'shot_PR-001_042', 'PR-001' if codes else None])
+                self.assertEqual(detail['K2'].value, 'Compositing del plano 042')
+                self.assertEqual(book['Resumen']['I2'].value, detail['K2'].value)
+                self.assertEqual(book['Resumen']['H2'].value, detail['B2'].value)
+                self.assertEqual(book['Resumen']['D2'].value, detail['D2'].value)
 
     def test_no_catalog_and_unreadable_file_retained(self):
         envio = self.prepare()
@@ -198,9 +246,9 @@ class EnvioTests(unittest.TestCase):
         self.assertEqual(report['filas_con_revision'], 1)
         wb = self.workbook(report)
         self.addCleanup(wb.close)
-        self.assertIn('Listado de personal bonificado no aportado', wb['Evidencias']['I2'].value)
-        self.assertIn('Lectura incompleta', wb['Evidencias']['I2'].value)
-        self.assertIsNone(wb['Evidencias']['J2'].value)
+        self.assertIn('Listado de personal bonificado no aportado', wb['DETALLE']['J2'].value)
+        self.assertIn('Lectura incompleta', wb['DETALLE']['J2'].value)
+        self.assertIsNone(wb['DETALLE']['B2'].value)
 
     def test_tampered_original_or_extraction_is_blocked(self):
         envio = self.prepare()
@@ -254,7 +302,7 @@ class EnvioTests(unittest.TestCase):
         self.assertEqual((report['documentos'], report['copias'], report['filas']), (3, 3, 3))
         wb = self.workbook(report)
         self.addCleanup(wb.close)
-        notes = '\n'.join(str(wb['Evidencias'].cell(r, 9).value) for r in range(2, 5))
+        notes = '\n'.join(str(wb['DETALLE'].cell(r, 10).value) for r in range(2, 5))
         self.assertIn('Archivo idéntico', notes)
         self.assertIn('Formato sin lector', notes)
 

@@ -28,3 +28,5 @@ python 'NO TOCAR/skills/analizador-evidencias/scripts/envios.py' completar \
 Los originales adjuntos deben seguir disponibles para verificar su integridad al completar o reintentar. Si desaparecen, conserva el envío y restaura sus archivos exactos. Un bloqueo de escritor exige comprobar primero si hay un proceso activo. Las salidas existentes se verifican al reintentar; los cambios externos se comunican para conciliación.
 
 Un error durante el trabajo conserva las áreas técnicas para diagnóstico. La publicación final usa una carpeta nueva. Cada entrega incorpora un informe previo a la publicación que permite recuperar una interrupción posterior. Un ZIP de entrega perdido o dañado se reconstruye desde la copia técnica verificada.
+
+Al preparar el envío, pasa el Excel o CSV de personal con --personal y el de proyectos con --proyectos. Un libro con ambas hojas puede usarse para ambos parámetros. Comprueba referencias_importadas. Si los encabezados o el formato requieren lectura manual, conserva los listados y completa catalogo.json con los valores y ubicaciones verificados antes de ejecutar completar. Los listados son opcionales e independientes.
