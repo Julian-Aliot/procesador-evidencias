@@ -20,12 +20,12 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 HEADERS = ['PERSONAS', 'CÓDIGO PROYECTO', 'NOMBRE PROYECTO', 'FECHA',
            'TÍTULO TAREA', 'RESUMEN EVIDENCIA', 'UBICACIÓN', 'ARCHIVO EVIDENCIA',
            'REVISIÓN', 'PERSONAL BONIFICADO DETECTADO', 'CÓDIGO DE PROYECTO DETECTADO']
 SUMMARY_HEADERS = ['NOMBRE PRINCIPAL DE LA EVIDENCIA', 'OTROS NOMBRES', 'CÓDIGO DE PROYECTO',
-                   'CÓDIGO DETECTADO', 'FECHA', 'TÍTULO', 'RESUMEN']
+                   'CÓDIGO DETECTADO', 'FECHA', 'TÍTULO', 'RESUMEN', 'NOMBRE DETECTADO', 'DESCRIPCIÓN TAREA']
 SUPPORTED = {'.pdf', '.png', '.jpg', '.jpeg', '.tif', '.tiff', '.webp', '.bmp',
              '.xlsx', '.xlsm', '.xls', '.ods', '.csv', '.docx', '.doc', '.odt',
              '.pptx', '.txt', '.md', '.eml'}
@@ -220,6 +220,7 @@ def prepare(root, cliente, archivos):
         'version': VERSION, 'envio_id': identifier,
         'documentos': [{'id': d['id'], 'sha256': d['sha256'], 'lectura_completa': False,
                         'incidencias_documento': [],
+                        'resumen_documento': {'descripcion_tarea': field()},
                         'actividades': [empty_activity('Pendiente de lectura por el agente.')]} for d in documents]})
     write_json(envio / 'catalogo.json', {'version': VERSION, 'personal': None, 'proyectos': None})
     write_json(envio / 'estado.json', {'version': VERSION, 'envio_id': identifier,
@@ -273,13 +274,61 @@ def catalog_indexes(catalog):
     return indexes
 
 
-def matches(values, index, label, reasons):
+def name_parts(value):
+    plain = ''.join(c for c in unicodedata.normalize('NFD', normalized(value))
+                    if not unicodedata.combining(c))
+    return re.findall(r"[^\W\d_]+", plain)
+
+
+def short_name(observed, full, identified):
+    if any(char.isdigit() for char in observed) or not all(c.isalpha() or c in " .-’'" for c in observed):
+        return False
+    words, target = name_parts(observed), name_parts(full)
+    if not words or not target or len(words) > len(target):
+        return False
+    if words == target:
+        return True
+    if len(words) == 1:
+        if not identified:
+            return False
+        return (len(words[0]) >= 3 and words[0] == target[0]) or (
+            len(words[0]) >= 4 and target[0].startswith(words[0]))
+    if not any(len(word) >= 3 and word == ref for word, ref in zip(words, target)):
+        return False
+    return all(word == ref or (ref.startswith(word) and
+               (len(word) == 1 or (i == 0 and len(word) >= 3)))
+               for i, (word, ref) in enumerate(zip(words, target)))
+
+
+def embedded_code(value, code):
+    # Los delimitadores incluyen guiones bajos de nombres de planos y archivos.
+    if code.isdecimal():
+        return re.search(r'(?:proyecto|project|código|codigo)\s*[:#_-]?\s*' + re.escape(code)
+                         + r'(?![^\W_])', value) is not None
+    if not code or len(code) < 2:
+        return False
+    after = r'(?![^\W_])'
+    if code.isalpha() and len(code) >= 3:
+        after = r'(?:[0-9]+)?(?![^\W_])'
+    return re.search(r'(?<![^\W_])' + re.escape(code) + after, value) is not None
+
+
+def matches(values, index, label, reasons, identified=False):
     if index is None:
         reasons.append(f'Listado de {label} no aportado; contraste pendiente.')
         return ''
     results = []
     for value in values:
         candidates = index.get(normalized(value), set())
+        if not candidates:
+            candidates = set()
+            for alias, owners in index.items():
+                if label == 'proyectos':
+                    hit = embedded_code(normalized(value), alias)
+                else:
+                    hit = short_name(value, alias, identified)
+                if hit:
+                    candidates.update(owners)
         if len(candidates) > 1:
             reasons.append(f'Coincidencia ambigua en {label}: {value}.')
         elif len(candidates) == 1:
@@ -369,13 +418,12 @@ def build_rows(manifest, extraction, catalog):
                     raise ValueError('Debe indicarse el tipo de fecha extraída.')
                 if kind not in {'realizacion', 'participacion'}:
                     reasons.append('La fecha corresponde a ' + kind + '; la realización queda pendiente.')
-            detected_people = matches(names, indexes['personal'], 'personal bonificado', reasons)
             detected_codes = matches(codes, indexes['proyectos'], 'proyectos', reasons)
             if not item['lectura_completa']:
                 reasons.append('Las detecciones reflejan únicamente el contenido legible revisado.')
             values = ['\n'.join(name_roles), '\n'.join(codes), scalars['nombre_proyecto'], excel_date,
                       scalars['titulo_tarea'], scalars['resumen'], '\n'.join(dict.fromkeys(locations)),
-                      'Abrir evidencia', '\n'.join(dict.fromkeys(reasons)), detected_people, detected_codes]
+                      'Abrir evidencia', '\n'.join(dict.fromkeys(reasons)), '', detected_codes]
             if any(isinstance(v, str) and len(v) > 32767 for v in values):
                 raise ValueError('Una celda supera 32767 caracteres; divide actividades con respaldo documental.')
             # Una fila por persona/tarea; no atribuir el resto de personas a esa fila.
@@ -384,9 +432,15 @@ def build_rows(manifest, extraction, catalog):
                 person_reasons = list(reasons)
                 if person is not None:
                     person_values[0] = person['valor'] + ' (' + person['rol'].replace('_', ' ') + ')'
-                    person_values[9] = matches([person['valor']], indexes['personal'],
-                                               'personal bonificado', person_reasons)
-                    person_values[8] = '\n'.join(dict.fromkeys(person_reasons))
+                    if person.get('identidad_dudosa') is True:
+                        person_reasons.append('Identidad dudosa según la evidencia: ' + person['valor'])
+                    else:
+                        person_values[9] = matches([person['valor']], indexes['personal'],
+                                               'personal bonificado', person_reasons,
+                                               identified=person['rol'] in {'autor', 'participante', 'responsable', 'destinatario'})
+                else:
+                    matches([], indexes['personal'], 'personal bonificado', person_reasons)
+                person_values[8] = '\n'.join(dict.fromkeys(person_reasons))
                 trace = []
                 for entry in catalog.get('personal') or []:
                     if entry['nombre'] in person_values[9].split('\n'):
@@ -420,8 +474,11 @@ def build_summary_rows(manifest, extraction, rows):
         dates = unique(r['values'][3] for r in detail)
         title = validate_field(meta['titulo'], 'título del documento') if 'titulo' in meta else joined(4)
         summary = validate_field(meta['resumen'], 'resumen del documento') if 'resumen' in meta else joined(5)
+        task = validate_field(meta['descripcion_tarea'], 'descripción tarea') if 'descripcion_tarea' in meta else None
+        if extraction.get('version') == VERSION and summary and not task and item['lectura_completa'] and not item['incidencias_documento']:
+            raise ValueError('Completa descripcion_tarea con la acción y su objeto o registra por qué no se puede identificar.')
         values = [principal, '\n'.join(n for n in names if n != principal), joined(1), joined(10),
-                  dates[0] if len(dates) == 1 else None, title or 'Sin título identificado', summary]
+                  dates[0] if len(dates) == 1 else None, title or 'Sin título identificado', summary, joined(9), task]
         if any(isinstance(v, str) and len(v) > 32767 for v in values):
             raise ValueError('Resumen documental demasiado largo; redacta resumen_documento de forma concisa.')
         notes = [doc['id'], doc['nombre_original'], 'Detalle en hoja Evidencias.']
@@ -468,7 +525,7 @@ def make_excel(path, rows, summaries):
     ws.add_table(table)
     summary = wb.create_sheet('Resumen', 0)
     summary.append(SUMMARY_HEADERS)
-    for col, width in enumerate([34, 42, 28, 28, 16, 50, 80], 1):
+    for col, width in enumerate([34, 42, 28, 28, 16, 50, 80, 38, 55], 1):
         summary.column_dimensions[summary.cell(1, col).column_letter].width = width
     for number, item in enumerate(summaries, 2):
         for col, value in enumerate(item['values'], 1):
@@ -488,7 +545,7 @@ def make_excel(path, rows, summaries):
         cell.alignment = Alignment(wrap_text=True, vertical='center')
     summary.row_dimensions[1].height = 36
     summary.freeze_panes = 'A2'
-    table = Table(displayName='TablaResumen', ref=f'A1:G{len(summaries) + 1}')
+    table = Table(displayName='TablaResumen', ref=f'A1:I{len(summaries) + 1}')
     table.tableStyleInfo = TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)
     summary.add_table(table)
     wb.active = 0
@@ -519,8 +576,8 @@ def verify_excel(path, rows, summaries):
             raise ValueError('El enlace apunta a una copia ausente.')
     summary = wb['Resumen']
     if ([c.value for c in summary[1]] != SUMMARY_HEADERS or summary.max_row != len(summaries) + 1
-            or summary.max_column != 7):
-        raise ValueError('Resumen debe contener exactamente una fila por documento y siete columnas.')
+            or summary.max_column != len(SUMMARY_HEADERS)):
+        raise ValueError('Resumen debe contener exactamente una fila por documento y nueve columnas.')
     for number, item in enumerate(summaries, 2):
         for col, expected in enumerate(item['values'], 1):
             cell = summary.cell(number, col)
@@ -563,26 +620,29 @@ def finish(root, envio_path):
             raise ValueError('Identidad de envío incorrecta.')
         verify_originals(envio, manifest)
         extraction = read_json(envio / 'extraccion.json')
-        rows, counts = build_rows(manifest, extraction, read_json(envio / 'catalogo.json'))
-        summaries = build_summary_rows(manifest, extraction, rows)
         inputs_hash = [digest(envio / name) for name in ['extraccion.json', 'catalogo.json']]
         destination = root / 'resultados' / simple_name(manifest['cliente']) / envio.name
         archive = envio / 'entrega.zip'
-        if destination.exists():
-            report = read_json(envio / 'entrega.json')
+        public_zip = destination / 'entrega.zip'
+        receipt = envio / 'entrega.json'
+        if receipt.exists():
+            report = read_json(receipt)
             if report['datos_sha256'] != inputs_hash:
-                raise ValueError('La entrega ya existe con otros datos. Conserva la entrega y crea otro envío para una nueva interpretación.')
-            for relative, expected in report['archivos_sha256'].items():
-                if digest(contained(destination, relative)) != expected:
-                    raise ValueError('Una salida anterior ha cambiado.')
-            actual = {p.relative_to(destination).as_posix() for p in destination.rglob('*') if p.is_file()}
-            if actual != set(report['archivos_sha256']):
-                raise ValueError('La carpeta de salida contiene archivos ajenos.')
-            if not archive.exists() or digest(archive) != report['zip_sha256']:
-                create_zip(archive, destination)
-                report['zip_sha256'] = digest(archive)
-                write_json(envio / 'entrega.json', report)
-            return report
+                raise ValueError('La entrega ya existe con otros datos. Conserva la entrega y crea otro envío.')
+            if 'excel' in report:  # Una entrega anterior conserva su formato y sus archivos.
+                if not archive.is_file() or digest(archive) != report['zip_sha256']:
+                    for relative, expected in report['archivos_sha256'].items():
+                        if digest(contained(destination, relative)) != expected:
+                            raise ValueError('Una salida anterior ha cambiado.')
+                    create_zip(archive, destination)
+                    report['zip_sha256'] = digest(archive)
+                    write_json(receipt, report)
+                return {k: v for k, v in report.items() if k not in {'excel', 'archivos_sha256'}}
+            return publish_zip(archive, public_zip, report)
+        if destination.exists():
+            raise ValueError('Carpeta de resultados existente sin informe de entrega.')
+        rows, counts = build_rows(manifest, extraction, read_json(envio / 'catalogo.json'))
+        summaries = build_summary_rows(manifest, extraction, rows)
         stage = envio / ('preparacion_' + uuid.uuid4().hex)
         (stage / 'evidencias').mkdir(parents=True)
         for doc in manifest['documentos']:
@@ -601,14 +661,29 @@ def finish(root, envio_path):
                   'documentos': len(manifest['documentos']), 'copias': len(manifest['documentos']),
                   'filas': len(rows), 'filas_resumen': len(summaries), 'entregables': ['zip'], 'filas_por_documento': counts,
                   'filas_con_revision': sum(bool(r['values'][8]) for r in rows),
-                  'excel': str(destination / excel_name), 'zip': str(archive),
-                  'datos_sha256': inputs_hash, 'zip_sha256': digest(archive),
-                  'archivos_sha256': {p.relative_to(stage).as_posix(): digest(p) for p in stage.rglob('*') if p.is_file()}}
+                  'zip': str(public_zip),
+                  'datos_sha256': inputs_hash, 'zip_sha256': digest(archive)}
         # El informe precede a la publicación. Permite recuperar una interrupción posterior al rename.
         write_json(envio / 'entrega.json', report)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        stage.rename(destination)
+        shutil.rmtree(stage)
+        return publish_zip(archive, public_zip, report)
+
+
+def publish_zip(archive, public_zip, report):
+    public_zip.parent.mkdir(parents=True, exist_ok=True)
+    if public_zip.exists():
+        if digest(public_zip) != report['zip_sha256']:
+            raise ValueError('Una salida anterior ha cambiado.')
         return report
+    if digest(archive) != report['zip_sha256']:
+        raise ValueError('El ZIP técnico ha cambiado.')
+    temporary = public_zip.with_name('publicacion_' + uuid.uuid4().hex + '.tmp')
+    try:
+        shutil.copyfile(archive, temporary)
+        os.replace(temporary, public_zip)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return report
 
 
 def create_zip(archive, folder):

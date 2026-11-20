@@ -22,9 +22,9 @@ python 'NO TOCAR/skills/analizador-evidencias/scripts/envios.py' completar \
   --root . --envio '/ruta/absoluta/devuelta/por/preparar'
 ```
 
-7. El script verifica identidades y originales, cruza listados, copia documentos, genera y vuelve a abrir el XLSX y valida el contenido del ZIP. Publica en `resultados/<cliente>/<envío>/`. Devuelve las rutas reales del Excel y del ZIP, junto con recuentos y hashes.
-8. Comprueba el informe `<envío>/entrega.json`. Cada documento tiene una copia y una o varias filas. Verifica también los hashes de los listados originales antes de entregar. Sube únicamente el XLSX y el ZIP devueltos.
+7. El script verifica identidades y originales, cruza listados, copia documentos, genera y vuelve a abrir el XLSX y valida el contenido del ZIP. Publica en `resultados/<cliente>/<envío>/`. Devuelve únicamente la ruta del ZIP, junto con recuentos y hashes.
+8. Comprueba el informe `<envío>/entrega.json`. Cada documento tiene una copia y una o varias filas. Verifica también los hashes de los listados originales antes de entregar. Publica únicamente el ZIP devuelto y comparte solo su enlace.
 
 Los originales adjuntos deben seguir disponibles para verificar su integridad al completar o reintentar. Si desaparecen, conserva el envío y restaura sus archivos exactos. Un bloqueo de escritor exige comprobar primero si hay un proceso activo. Las salidas existentes se verifican al reintentar; los cambios externos se comunican para conciliación.
 
-Un error durante el trabajo conserva las áreas técnicas para diagnóstico. La publicación final usa una carpeta nueva. Cada entrega incorpora un informe previo a la publicación que permite recuperar una interrupción posterior. Un ZIP de entrega perdido o dañado se reconstruye desde las salidas verificadas.
+Un error durante el trabajo conserva las áreas técnicas para diagnóstico. La publicación final usa una carpeta nueva. Cada entrega incorpora un informe previo a la publicación que permite recuperar una interrupción posterior. Un ZIP de entrega perdido o dañado se reconstruye desde la copia técnica verificada.

@@ -6,4 +6,4 @@ Prepara las carpetas, descarga los adjuntos y comprueba dependencias. Si faltan 
 
 Cada petición crea un envío independiente. Los resultados se organizan por cliente e identificador de envío. Un reintento de exportación o transferencia continúa el mismo envío. Una nueva petición, incluso con archivos repetidos, crea otro envío.
 
-Al terminar comunica documentos, copias y filas. Explica por qué puede haber varias filas por documento. Resume datos pendientes y diferencias entre menciones y participaciones. Entrega enlaces de apertura verificados de Drive y explica cómo descargar desde allí.
+Al terminar comunica documentos, copias y filas. Explica por qué puede haber varias filas por documento. Resume datos pendientes y diferencias entre menciones y participaciones. Entrega el enlace verificado al ZIP de Drive y explica cómo descargar desde allí.

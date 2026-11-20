@@ -1,6 +1,6 @@
 {
   "programa": "analizador-evidencias",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "modo": "envios_independientes",
   "repositorio_url": "https://github.com/Julian-Aliot/procesador-evidencias",
   "rama": "main",

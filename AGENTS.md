@@ -1,4 +1,4 @@
-# Analizador de evidencias 1.1
+# Analizador de evidencias 1.2
 
 Este proyecto analiza evidencias de tareas, trabajos y participación en proyectos. Lee `NO TOCAR/AGENTS.md` y `NO TOCAR/skills/analizador-evidencias/SKILL.md` antes de trabajar.
 
@@ -10,4 +10,4 @@ Los listados de personal bonificado y códigos de proyecto son opcionales y espe
 
 Entrega únicamente el ZIP, que contiene el Excel de dos hojas y las evidencias, en Google Drive privado, en `Analizador de evidencias / <cliente> / <envío>`, con subidas verificadas. GitHub contiene programa y plantillas. Los adjuntos, listados, extracciones, controles y resultados quedan excluidos de Git.
 
-El Excel tiene dos hojas: Resumen, una fila por documento y siete columnas; Evidencias, once columnas y una fila por persona/tarea. Contrasta y traza cada persona con el listado bonificado opcional. Entrega solo el ZIP con el Excel y sus evidencias.
+El Excel tiene dos hojas: Resumen, una fila por documento y nueve columnas; Evidencias, once columnas y una fila por persona/tarea. Contrasta y traza cada persona con el listado bonificado opcional. Entrega solo el ZIP con el Excel y sus evidencias.

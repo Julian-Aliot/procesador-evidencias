@@ -6,7 +6,7 @@ El usuario puede adjuntar personal bonificado, códigos de proyecto, ambos o nin
 
 ```json
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "personal": [
     {"nombre": "Ana García López", "aliases": ["Ana G. López"], "origen": "Personal.xlsx, hoja Personal, A2:B2"}
   ],
@@ -27,7 +27,7 @@ python 'NO TOCAR/skills/analizador-evidencias/scripts/lectura.py' '/ruta/Persona
 
 Revisa el fragmento generado e incorpora su categoría a catalogo.json, manteniendo la otra categoría y version. Para otro listado usa `--listado proyectos` y otro destino nuevo. Las plantillas vacías sirven para introducir datos y se detectan como vacías durante la importación.
 
-El contraste normaliza Unicode, mayúsculas/minúsculas y espacios consecutivos. Conserva acentos, puntuación, guiones, ceros y el orden de palabras. Se comparan el nombre/código completo detectado y los alias declarados. Los alias compartidos por varias entradas distintas producen revisión y quedan sin asignación. Un nombre parcial requiere un alias autorizado para ser confirmado.
+El contraste normaliza Unicode, mayúsculas/minúsculas y espacios consecutivos. Conserva acentos, puntuación, guiones, ceros y el orden de palabras. Se comprueban primero los valores completos y los alias declarados. Los alias compartidos por varias entradas distintas producen revisión y quedan sin asignación. Se admiten iniciales con apellido y nombres de pila o prefijos suficientemente distintivos en un campo que identifica a la persona, siempre con un único candidato del listado. Conserva la grafía literal y la cita. Si el contexto deja dudas, marca identidad_dudosa: true en la persona extraída. El nombre literal y su rol se conservan y la detección queda vacía. En proyectos se admite un código delimitado dentro de una etiqueta, y códigos alfabéticos seguidos de numeración de plano. Conserva los ceros y deja en blanco las coincidencias ambiguas.
 
 PERSONAL BONIFICADO DETECTADO contiene los nombres canónicos cuyas detecciones tienen coincidencia única. CÓDIGO DE PROYECTO DETECTADO contiene los códigos canónicos con coincidencia única. Ambas columnas pueden contener varias líneas. Sin listado, quedan vacías y REVISIÓN indica contraste pendiente. Con listado y sin coincidencia confirmada, quedan vacías con esa explicación. Las coincidencias de una lectura incompleta son parciales y se indica en REVISIÓN.
 

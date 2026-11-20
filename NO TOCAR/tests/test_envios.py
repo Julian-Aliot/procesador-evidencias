@@ -31,6 +31,11 @@ class EnvioTests(unittest.TestCase):
     def prepare(self):
         return Path(engine.prepare(self.root, 'Cliente', [self.source])['envio'])
 
+    def workbook(self, report):
+        with zipfile.ZipFile(report['zip']) as archive:
+            [book] = [name for name in archive.namelist() if '/' not in name and name.endswith('.xlsx')]
+            return load_workbook(io.BytesIO(archive.read(book)))
+
     def fill(self, envio, twice=False):
         data = engine.read_json(envio / 'extraccion.json')
         def evidence(value):
@@ -43,6 +48,7 @@ class EnvioTests(unittest.TestCase):
         activity['tipo_fecha'] = 'realizacion'
         activity['titulo_tarea'] = evidence('=Tarea literal')
         activity['resumen'] = evidence('Actividad revisada')
+        data['documentos'][0]['resumen_documento']['descripcion_tarea'] = evidence('Tarea de revisión del modelo')
         data['documentos'][0]['lectura_completa'] = True
         data['documentos'][0]['actividades'] = [activity, activity] if twice else [activity]
         engine.write_json(envio / 'extraccion.json', data)
@@ -55,7 +61,7 @@ class EnvioTests(unittest.TestCase):
         self.fill(envio, twice=True)
         report = engine.finish(self.root, envio)
         self.assertEqual((report['documentos'], report['copias'], report['filas']), (1, 1, 2))
-        wb = load_workbook(report['excel'])
+        wb = self.workbook(report)
         self.addCleanup(wb.close)
         self.assertEqual(wb.sheetnames, ['Resumen', 'Evidencias'])
         ws = wb['Evidencias']
@@ -87,6 +93,7 @@ class EnvioTests(unittest.TestCase):
         activity['personas'].append({'valor': 'Luis Pérez', 'rol': 'autor',
                                     'ubicacion': 'Firma', 'cita': 'Luis Pérez'})
         for document in data['documentos']:
+            document['resumen_documento'] = data['documentos'][0]['resumen_documento']
             document['actividades'] = [activity, activity]
             document['lectura_completa'] = True
         engine.write_json(envio / 'extraccion.json', data)
@@ -94,12 +101,15 @@ class EnvioTests(unittest.TestCase):
         self.assertEqual(report['filas_resumen'], 7)
         self.assertEqual(report['filas'], 28)
         self.assertEqual(report['entregables'], ['zip'])
-        with zipfile.ZipFile(report['zip']) as archive:
-            wb = load_workbook(io.BytesIO(archive.read(Path(report['excel']).name)))
+        wb = self.workbook(report)
         self.addCleanup(wb.close)
         summary, detail = wb['Resumen'], wb['Evidencias']
+        self.assertNotIn('excel', report)
+        self.assertEqual(list(Path(report['zip']).parent.iterdir()), [Path(report['zip'])])
+        self.assertEqual(summary['H2'].value, 'Ana García')
+        self.assertEqual(summary['I2'].value, 'Tarea de revisión del modelo')
         self.assertEqual(summary.max_row, 8)
-        self.assertEqual(summary.max_column, 7)
+        self.assertEqual(summary.max_column, 9)
         self.assertIsNone(summary['A2'].value)
         self.assertEqual(summary['B2'].value, 'Ana García\nLuis Pérez')
         self.assertEqual(summary['D2'].value, 'PR-001')
@@ -119,11 +129,11 @@ class EnvioTests(unittest.TestCase):
         doc['resumen_documento'] = {
             key: {'valor': value, 'ubicacion': 'Documento', 'cita': value}
             for key, value in [('nombre_principal', 'Ana García'),
-                               ('titulo', 'Título global'), ('resumen', 'Resumen global')]}
+                               ('titulo', 'Título global'), ('resumen', 'Resumen global'), ('descripcion_tarea', 'Tarea de composición del plano 21')]}
         engine.write_json(envio / 'extraccion.json', data)
         engine.write_json(envio / 'catalogo.json', {'personal': None, 'proyectos': None})
         report = engine.finish(self.root, envio)
-        wb = load_workbook(report['excel'])
+        wb = self.workbook(report)
         self.addCleanup(wb.close)
         self.assertIsNone(wb['Resumen']['E2'].value)
         self.assertIsNone(wb['Resumen']['D2'].value)
@@ -137,10 +147,10 @@ class EnvioTests(unittest.TestCase):
         for envio in [first, second]:
             self.fill(envio)
         one = engine.finish(self.root, first)
-        original_hash = engine.digest(one['excel'])
+        original_hash = engine.digest(one['zip'])
         two = engine.finish(self.root, second)
-        self.assertNotEqual(one['excel'], two['excel'])
-        self.assertEqual(engine.digest(one['excel']), original_hash)
+        self.assertNotEqual(one['zip'], two['zip'])
+        self.assertEqual(engine.digest(one['zip']), original_hash)
         self.assertEqual(two['documentos'], 1)
 
     def test_catalog_matching_full_names_codes_and_ambiguous_aliases(self):
@@ -155,12 +165,38 @@ class EnvioTests(unittest.TestCase):
         self.assertNotEqual(engine.normalized('PR-001'), engine.normalized('PR-1'))
         self.assertNotEqual(engine.normalized('PR-001'), engine.normalized('PR001'))
 
+    def test_names_and_decorated_codes_in_delivered_zip(self):
+        envio = self.prepare()
+        self.fill(envio)
+        data = engine.read_json(envio / 'extraccion.json')
+        activity = data['documentos'][0]['actividades'][0]
+        def run(name, code, people):
+            activity['personas'][0].update(valor=name, cita='Responsable: ' + name)
+            activity['codigos_proyecto'][0].update(valor=code, cita=code)
+            # Cada prueba tiene su propio envío.
+            current = self.prepare()
+            self.fill(current)
+            data['envio_id'] = current.name
+            engine.write_json(current / 'extraccion.json', data)
+            cat = engine.read_json(current / 'catalogo.json')
+            cat['personal'] = [{'nombre': n, 'origen': 'Personal.xlsx, A2', 'aliases': []} for n in people]
+            engine.write_json(current / 'catalogo.json', cat)
+            wb = self.workbook(engine.finish(self.root, current))
+            self.addCleanup(wb.close)
+            return [wb['Resumen'][c].value for c in ['H2', 'D2']] + [wb['Evidencias']['J2'].value]
+        self.assertEqual(run('A. García', 'plano_PR-001_004', ['Ana García']),
+                         ['Ana García', 'PR-001', 'Ana García'])
+        self.assertEqual(run('Fran', 'PR-0012', ['Francisco López']), ['Francisco López', None, 'Francisco López'])
+        self.assertEqual(run('Ana', 'PR-001', ['Ana García', 'Ana Pérez']), [None, 'PR-001', None])
+        self.assertTrue(engine.embedded_code('seq_atlas042_comp', 'atlas'))
+        self.assertFalse(engine.embedded_code('atlasmar042', 'atlas'))
+
     def test_no_catalog_and_unreadable_file_retained(self):
         envio = self.prepare()
         report = engine.finish(self.root, envio)
         self.assertEqual(report['filas'], 1)
         self.assertEqual(report['filas_con_revision'], 1)
-        wb = load_workbook(report['excel'])
+        wb = self.workbook(report)
         self.addCleanup(wb.close)
         self.assertIn('Listado de personal bonificado no aportado', wb['Evidencias']['I2'].value)
         self.assertIn('Lectura incompleta', wb['Evidencias']['I2'].value)
@@ -184,7 +220,7 @@ class EnvioTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'otros datos'):
             engine.finish(self.root, envio)
         (envio / 'extraccion.json').write_bytes(original_extraction)
-        Path(report['excel']).write_bytes(b'alterado')
+        Path(report['zip']).write_bytes(b'alterado')
         with self.assertRaisesRegex(ValueError, 'salida anterior ha cambiado'):
             engine.finish(self.root, envio)
 
@@ -216,7 +252,7 @@ class EnvioTests(unittest.TestCase):
         envio = Path(engine.prepare(self.root, 'Cliente', [archive])['envio'])
         report = engine.finish(self.root, envio)
         self.assertEqual((report['documentos'], report['copias'], report['filas']), (3, 3, 3))
-        wb = load_workbook(report['excel'])
+        wb = self.workbook(report)
         self.addCleanup(wb.close)
         notes = '\n'.join(str(wb['Evidencias'].cell(r, 9).value) for r in range(2, 5))
         self.assertIn('Archivo idéntico', notes)
